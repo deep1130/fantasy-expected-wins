@@ -73,14 +73,16 @@ function isSlotEligible(
   slotType: string,
   playerPositions: string[],
   playerProj?: number | null,
+  hasDedicatedTeSlot = true,
+  isTePremium = false,
 ): boolean {
   if (!slotType) return false
   const upperSlot = slotType.toUpperCase()
   const upperPos = playerPositions.map((p) => p.toUpperCase())
 
   if (upperSlot === 'FLEX') {
-    // In 1-TE leagues, Tight Ends are evaluated against the starting TE slot, not FLEX
-    if (upperPos.length === 1 && upperPos[0] === 'TE') {
+    // In standard 1-TE non-TEP leagues, Tight Ends are evaluated against the starting TE slot unless projected as an elite FLEX play
+    if (hasDedicatedTeSlot && !isTePremium && upperPos.length === 1 && upperPos[0] === 'TE') {
       return (playerProj ?? 0) >= 14.0
     }
     return upperPos.some((p) => ['RB', 'WR', 'TE'].includes(p))
@@ -100,11 +102,28 @@ function isSlotEligible(
   return upperPos.includes(upperSlot)
 }
 
-function getPlayerProj(projWeek: Record<string, any> | null, playerId: string): number | null {
-  if (!projWeek || !projWeek[playerId]) return null
-  const p = projWeek[playerId]
+function getLeagueScoredValue(
+  feedWeek: Record<string, any> | null | undefined,
+  playerId: string,
+  scoringSettings?: Record<string, number>,
+  isTe = false,
+): number | null {
+  if (!feedWeek || !feedWeek[playerId]) return null
+  const p = feedWeek[playerId]
   if (p.pts_ppr == null && p.pts_half_ppr == null && p.pts_std == null) return null
-  const val = Number(p.pts_ppr ?? p.pts_half_ppr ?? p.pts_std ?? 0)
+
+  const recWeight = Number(scoringSettings?.rec ?? 1)
+  let base = 0
+  if (recWeight === 0) {
+    base = Number(p.pts_std ?? p.pts_half_ppr ?? p.pts_ppr ?? 0)
+  } else if (recWeight > 0 && recWeight < 0.75) {
+    base = Number(p.pts_half_ppr ?? p.pts_ppr ?? p.pts_std ?? 0)
+  } else {
+    base = Number(p.pts_ppr ?? p.pts_half_ppr ?? p.pts_std ?? 0)
+  }
+
+  const teBonus = isTe ? Number(scoringSettings?.bonus_rec_te ?? 0) * Number(p.rec ?? 0) : 0
+  const val = base + teBonus
   return Number.isFinite(val) ? val : null
 }
 
@@ -156,7 +175,15 @@ export function computeLineupBlunders(
   const starterSlots = rawPositions.filter(
     (pos) => !['BN', 'IR', 'TAXI', 'RESERVE'].includes(pos.toUpperCase()),
   )
+  const hasDedicatedTeSlot = starterSlots.some((s) => s.toUpperCase() === 'TE')
+  const isTePremium = Number(league.scoring_settings?.bonus_rec_te ?? 0) > 0
   const medianCutoff = Math.floor(totalTeams / 2)
+
+  const getPlayerProj = (projWeek: Record<string, any> | null, playerId: string): number | null => {
+    const pos = getPlayerPositions(playersMap, playerId)
+    const isTe = pos.includes('TE')
+    return getLeagueScoredValue(projWeek, playerId, league.scoring_settings, isTe)
+  }
 
   interface DropEvent {
     playerId: string
@@ -474,7 +501,17 @@ export function computeLineupBlunders(
 
           for (let sIdx = 0; sIdx < starters.length; sIdx++) {
             const slotType = starterSlots[sIdx] || 'FLEX'
-            if (!isSlotEligible(slotType, benchPositions, benchProj)) continue
+            if (
+              !isSlotEligible(
+                slotType,
+                benchPositions,
+                benchProj,
+                hasDedicatedTeSlot,
+                isTePremium,
+              )
+            ) {
+              continue
+            }
             eligibleStarterIndices.push(sIdx)
             const sProj = getPlayerProj(projWeek, starters[sIdx])
             if (sProj !== null && sProj < minEligibleStarterProj) {
@@ -529,8 +566,13 @@ export function computeLineupBlunders(
           if (withDropped) {
             dropPlayerPts = withDropped.players_points![droppedPlayerId]
           } else if (weeklyStats?.[week - 1]?.[droppedPlayerId]) {
-            const st = weeklyStats[week - 1][droppedPlayerId]
-            dropPlayerPts = Number(st.pts_ppr ?? st.pts_half_ppr ?? st.pts_std ?? 0)
+            const isTe = getPlayerPositions(playersMap, droppedPlayerId).includes('TE')
+            dropPlayerPts = getLeagueScoredValue(
+              weeklyStats[week - 1],
+              droppedPlayerId,
+              league.scoring_settings,
+              isTe,
+            )
           }
           if (dropPlayerPts === null || dropPlayerPts <= 0) continue
 
@@ -543,7 +585,17 @@ export function computeLineupBlunders(
 
           for (let sIdx = 0; sIdx < starters.length; sIdx++) {
             const slotType = starterSlots[sIdx] || 'FLEX'
-            if (!isSlotEligible(slotType, dropPositions, dropProj)) continue
+            if (
+              !isSlotEligible(
+                slotType,
+                dropPositions,
+                dropProj,
+                hasDedicatedTeSlot,
+                isTePremium,
+              )
+            ) {
+              continue
+            }
             eligibleStarterIndices.push(sIdx)
             const sProj = getPlayerProj(projWeek, starters[sIdx])
             if (sProj !== null && sProj < minEligibleStarterProj) {
