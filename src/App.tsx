@@ -1253,7 +1253,7 @@ export default function App() {
                     {analysis.teams.map((teamA) => (
                       <tr key={teamA.rosterId}>
                         <td className="sticky-col">
-                          <span className="team-title">{teamA.teamName}</span>
+                          <span className="team-title" title={teamA.teamName}>{teamA.teamName}</span>
                         </td>
                         {analysis.teams.map((teamB) => {
                           const entry = analysis.scheduleMatrix.find(
@@ -1328,7 +1328,7 @@ export default function App() {
                         {analysis.teams.map((teamA) => (
                           <tr key={teamA.rosterId}>
                             <td className="sticky-col">
-                              <span className="team-title">{teamA.teamName}</span>
+                              <span className="team-title" title={teamA.teamName}>{teamA.teamName}</span>
                             </td>
                             {analysis.teams.map((teamB) => {
                               const entry = analysis.scheduleMatrix.find(

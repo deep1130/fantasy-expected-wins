@@ -442,7 +442,7 @@ h1 em {
 /* TABLES */
 .table-wrap {
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y;
   overscroll-behavior-x: contain;
@@ -452,6 +452,8 @@ h1 em {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+  position: relative;
+  isolation: isolate;
 }
 table {
   width: 100%;
@@ -496,6 +498,13 @@ td {
 }
 tbody tr:hover td {
   background: rgba(255, 255, 255, 0.02);
+}
+tbody tr:hover td.sticky-col,
+tbody tr:active td.sticky-col,
+tbody tr:focus td.sticky-col,
+tbody tr:focus-within td.sticky-col {
+  background: #191c22 !important;
+  background-color: #191c22 !important;
 }
 tbody tr:last-child td {
   border-bottom: 0;
@@ -820,6 +829,7 @@ tbody tr:last-child td {
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+  background: var(--surface);
 }
 .matrix-table th {
   text-align: center;
@@ -834,11 +844,14 @@ tbody tr:last-child td {
   padding: 6px 8px;
 }
 .matrix-cell {
+  position: relative;
+  z-index: 1;
   font-family: var(--mono);
   font-size: 11px;
 }
 .matrix-cell.own-schedule {
   background: rgba(96, 165, 250, 0.08);
+  z-index: 2;
 }
 .matrix-wins {
   display: block;
@@ -850,20 +863,60 @@ tbody tr:last-child td {
   color: var(--muted);
   font-size: 9px;
 }
+
+/* SOLID OPAQUE PINNED FRANCHISE COLUMN (NEVER SEE-THROUGH ON MOBILE SWIPING) */
+.matrix-table th.sticky-col,
+.matrix-table td.sticky-col,
 .sticky-col {
-  position: sticky;
-  left: 0;
-  background: var(--surface);
-  z-index: 10;
+  position: -webkit-sticky !important;
+  position: sticky !important;
+  left: 0 !important;
+  min-width: 135px !important;
+  max-width: 145px !important;
+  width: 140px !important;
+  box-sizing: border-box !important;
+  background-color: #121418 !important;
+  background: #121418 !important;
+  z-index: 30 !important;
   text-align: left !important;
-  border-right: 1px solid var(--line);
-  min-width: 125px;
-  max-width: 140px;
-  box-shadow: 3px 0 8px rgba(0, 0, 0, 0.45);
+  padding: 8px 12px !important;
+  border-right: 1px solid var(--line) !important;
+  box-shadow: 4px 0 10px rgba(0, 0, 0, 0.6) !important;
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  will-change: transform;
+  overflow: hidden !important;
 }
+
+.matrix-table thead th.sticky-col,
 thead .sticky-col {
-  z-index: 12;
-  background: var(--surface-raised);
+  background-color: #191c22 !important;
+  background: #191c22 !important;
+  z-index: 35 !important;
+}
+
+/* WHEN TOUCHED / HOVERED ON MOBILE, MAINTAIN 100% OPAQUE BACKGROUND */
+.matrix-table tbody tr:hover td.sticky-col,
+.matrix-table tbody tr:active td.sticky-col,
+.matrix-table tbody tr:focus td.sticky-col,
+tbody tr:hover td.sticky-col,
+tbody tr:active td.sticky-col {
+  background-color: #191c22 !important;
+  background: #191c22 !important;
+  z-index: 32 !important;
+}
+
+/* TEAM NAME TRUNCATION & BOUNDARIES */
+.matrix-table td.sticky-col .team-title,
+.sticky-col .team-title {
+  display: block !important;
+  max-width: 115px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1.3 !important;
 }
 
 /* SUPERLATIVES / ROBBERIES & ESCAPES */
