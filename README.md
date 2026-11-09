@@ -78,7 +78,7 @@ $$\text{All-Play Win \%} = \frac{\text{xW}_{\text{h2h}}}{\text{Weeks Played}}$$
 
 ### Prerequisites
 - Node.js (v18 or higher)
-- npm or pnpm
+- pnpm (`npm install -g pnpm`)
 
 ### Installation
 
@@ -86,11 +86,11 @@ $$\text{All-Play Win \%} = \frac{\text{xW}_{\text{h2h}}}{\text{Weeks Played}}$$
 # Clone the repository
 cd fantasy-expected-wins
 
-# Install dependencies
-npm install
+# Install dependencies with shared pnpm store
+pnpm install
 
 # Start development server
-npm run dev
+pnpm dev
 ```
 
 The app will be running at `http://localhost:5173`.
@@ -99,10 +99,10 @@ The app will be running at `http://localhost:5173`.
 
 ```bash
 # Compile TypeScript and bundle with Vite
-npm run build
+pnpm build
 
 # Preview production build locally
-npm run preview
+pnpm preview
 ```
 
 ---
