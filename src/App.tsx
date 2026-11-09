@@ -895,24 +895,18 @@ export default function App() {
                   </div>
 
                   {/* Record Splits (Head to Head & Median) */}
-                  <div className="m-card-records-strip">
-                    <div className="m-record-chip">
-                      <span className="m-chip-lbl">Head to Head:</span>
-                      <span className="m-chip-val">{team.h2hActualWins}–{team.h2hActualLosses}</span>
-                    </div>
-                    {hasMedian && (
+                  {hasMedian && (
+                    <div className="m-card-records-strip">
+                      <div className="m-record-chip">
+                        <span className="m-chip-lbl">Head to Head:</span>
+                        <span className="m-chip-val">{team.h2hActualWins}–{team.h2hActualLosses}</span>
+                      </div>
                       <div className="m-record-chip">
                         <span className="m-chip-lbl">Median:</span>
                         <span className="m-chip-val">{team.medianActualWins}–{team.medianActualLosses}</span>
                       </div>
-                    )}
-                    {hasMedian && (
-                      <div className="m-record-chip m-chip-total">
-                        <span className="m-chip-lbl">Total:</span>
-                        <span className="m-chip-val">{team.actualWins}–{team.actualLosses}</span>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   <div className="m-card-metrics-grid">
                     <div className="m-metric-cell highlight">

@@ -1307,13 +1307,6 @@ tbody tr:active td.sticky-col {
   font-size: 11px;
   font-weight: 600;
 }
-.m-record-chip.m-chip-total {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: var(--line);
-}
-.m-record-chip.m-chip-total .m-chip-val {
-  color: var(--accent-text);
-}
 
 .m-card-metrics-grid {
   display: grid;
