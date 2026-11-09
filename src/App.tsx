@@ -69,6 +69,8 @@ export default function App() {
   const [sortAsc, setSortAsc] = useState<boolean>(false)
   const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [copied, setCopied] = useState(false)
+  const [matrixTeamId, setMatrixTeamId] = useState<number | null>(null)
+  const [showRawMatrix, setShowRawMatrix] = useState<boolean>(false)
 
   async function refresh(targetId?: string) {
     const activeId = (targetId ?? leagueId).trim()
@@ -295,6 +297,58 @@ export default function App() {
     return result
   }, [analysis, data, selectedWeek])
 
+  // Active team for mobile schedule matrix inspector
+  const activeMatrixTeam = useMemo(() => {
+    if (!analysis || analysis.teams.length === 0) return null
+    if (matrixTeamId != null) {
+      const found = analysis.teams.find((t) => t.rosterId === matrixTeamId)
+      if (found) return found
+    }
+    return analysis.teams[0]
+  }, [analysis, matrixTeamId])
+
+  // Simulated schedule comparisons for the active team
+  const matrixComparisons = useMemo(() => {
+    if (!analysis || !activeMatrixTeam) return []
+    const results: {
+      ownerTeam: TeamSeasonSummary
+      hypotheticalWins: number
+      hypotheticalLosses: number
+      hypotheticalTies: number
+      winPct: number
+      isOwn: boolean
+      deltaFromOwn: number
+    }[] = []
+
+    const ownEntry = analysis.scheduleMatrix.find(
+      (m) =>
+        m.teamRosterId === activeMatrixTeam.rosterId &&
+        m.scheduleOfRosterId === activeMatrixTeam.rosterId,
+    )
+    const ownWins = ownEntry ? ownEntry.hypotheticalWins : activeMatrixTeam.actualWins
+
+    for (const otherTeam of analysis.teams) {
+      const entry = analysis.scheduleMatrix.find(
+        (m) =>
+          m.teamRosterId === activeMatrixTeam.rosterId &&
+          m.scheduleOfRosterId === otherTeam.rosterId,
+      )
+      if (entry) {
+        results.push({
+          ownerTeam: otherTeam,
+          hypotheticalWins: entry.hypotheticalWins,
+          hypotheticalLosses: entry.hypotheticalLosses,
+          hypotheticalTies: entry.hypotheticalTies,
+          winPct: entry.winPct,
+          isOwn: otherTeam.rosterId === activeMatrixTeam.rosterId,
+          deltaFromOwn: entry.hypotheticalWins - ownWins,
+        })
+      }
+    }
+
+    return results.sort((a, b) => b.hypotheticalWins - a.hypotheticalWins)
+  }, [analysis, activeMatrixTeam])
+
   const totalTeams = analysis?.totalTeams ?? data?.rosters.length ?? 12
   const hasMedian = analysis?.hasMedian ?? false
 
@@ -519,7 +573,8 @@ export default function App() {
                 onClick={() => setView('matrix')}
               >
                 <Grid3x3 size={12} />
-                <span>Schedule Matrix</span>
+                <span className="tab-label-full">Schedule Matrix</span>
+                <span className="tab-label-short">Matrix</span>
               </button>
               <button
                 type="button"
@@ -533,9 +588,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* VIEW 1: STANDINGS TABLE */}
+        {/* VIEW 1: STANDINGS TABLE & MOBILE CARDS */}
         {view === 'standings' && (
-          <div className="table-wrap">
+          <>
+            {/* Desktop Full Table View (>= 769px) */}
+            <div className="desktop-table-view">
+              <div className="table-wrap">
             <table>
               <thead>
                 <tr>
@@ -727,7 +785,155 @@ export default function App() {
               </tbody>
             </table>
           </div>
-        )}
+        </div>
+
+        {/* Mobile Adaptive Cards View (<= 768px, NO horizontal scrolling) */}
+        <div className="mobile-cards-view">
+          {data && displayTeams.length > 0 && (
+            <div className="mobile-sort-bar">
+              <div className="m-sort-field-wrap">
+                <span className="m-sort-label">SORT BY</span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => handleSort(e.target.value as SortField)}
+                  className="m-sort-select"
+                  aria-label="Sort standings by"
+                >
+                  <option value="expectedWins">Expected W–L (xWins)</option>
+                  <option value="actualWins">Actual W–L</option>
+                  <option value="luck">Schedule Luck Δ</option>
+                  <option value="allPlay">All-Play Record</option>
+                  <option value="pointsFor">Points For (PF)</option>
+                  <option value="pointsAgainst">Points Against (PA)</option>
+                  <option value="avgRank">Average Rank</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                className="m-sort-dir-btn"
+                onClick={() => setSortAsc(!sortAsc)}
+                aria-label={sortAsc ? 'Sort ascending' : 'Sort descending'}
+              >
+                <ArrowUpDown size={12} />
+                <span>{sortAsc ? 'ASC' : 'DESC'}</span>
+              </button>
+            </div>
+          )}
+
+          <div className="m-standings-card-list">
+            {displayTeams.map((team, idx) => {
+              const luckSign = team.luckDelta > 0 ? '+' : ''
+              const luckFormatted = `${luckSign}${formatDec(team.luckDelta, 2)}`
+              return (
+                <div key={team.rosterId} className="m-standings-card">
+                  <div className="m-card-header">
+                    <div className="m-card-identity">
+                      <span className="m-card-rank">#{idx + 1}</span>
+                      {team.avatarUrl ? (
+                        <img
+                          src={team.avatarUrl}
+                          alt={team.teamName}
+                          className="team-avatar"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="team-avatar-fallback">
+                          {team.teamName.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="team-meta">
+                        <span className="team-title">{team.teamName}</span>
+                        <span className="team-sub">
+                          {team.user?.display_name ?? `Team ${team.rosterId}`}
+                          {hasMedian ? ` · Med: ${formatDec(team.medianActualWins, 0)}-${formatDec(team.medianActualLosses, 0)}` : ''}
+                        </span>
+                      </div>
+                    </div>
+
+                    <span className={`luck-pill ${team.luckTier}`}>
+                      {team.luckTier === 'very-lucky' || team.luckTier === 'lucky' ? (
+                        <Flame size={12} />
+                      ) : team.luckTier === 'very-unlucky' || team.luckTier === 'unlucky' ? (
+                        <ShieldAlert size={12} />
+                      ) : (
+                        <Scale size={12} />
+                      )}
+                      <strong>{luckFormatted} W</strong>
+                    </span>
+                  </div>
+
+                  <div className="m-card-metrics-grid">
+                    <div className="m-metric-cell highlight">
+                      <span className="m-metric-label">EXPECTED W–L</span>
+                      <strong className="m-metric-val accent">
+                        {formatDec(team.expectedWins, 1)}–{formatDec(team.expectedLosses, 1)}
+                      </strong>
+                      <span className="m-metric-sub">{formatPct(team.expectedWinPct)} exp</span>
+                    </div>
+
+                    <div className="m-metric-cell">
+                      <span className="m-metric-label">ACTUAL W–L</span>
+                      <strong className="m-metric-val">
+                        {team.actualWins}–{team.actualLosses}
+                        {team.actualTies > 0 ? `–${team.actualTies}` : ''}
+                      </strong>
+                      <span className="m-metric-sub">{formatPct(team.actualWinPct)} act</span>
+                    </div>
+
+                    <div className="m-metric-cell">
+                      <span className="m-metric-label">ALL-PLAY</span>
+                      <strong className="m-metric-val">
+                        {team.allPlayWins}–{team.allPlayLosses}
+                      </strong>
+                      <span className="m-metric-sub">{formatPct(team.allPlayWinPct)}</span>
+                    </div>
+
+                    <div className="m-metric-cell">
+                      <span className="m-metric-label">POINTS FOR</span>
+                      <strong className="m-metric-val">
+                        {formatDec(team.pointsFor, 1)}
+                      </strong>
+                      <span className="m-metric-sub">#{team.pfRank} · {formatDec(team.avgPointsFor, 1)}/wk</span>
+                    </div>
+
+                    <div className="m-metric-cell">
+                      <span className="m-metric-label">POINTS AGAINST</span>
+                      <strong className="m-metric-val">
+                        {formatDec(team.pointsAgainst, 1)}
+                      </strong>
+                      <span className="m-metric-sub">#{team.paRank} · {formatDec(team.avgPointsAgainst, 1)}/wk</span>
+                    </div>
+
+                    <div className="m-metric-cell">
+                      <span className="m-metric-label">AVG SCORING RANK</span>
+                      <strong className="m-metric-val">
+                        #{formatDec(team.avgWeeklyRank, 1)}
+                      </strong>
+                      <span className="m-metric-sub">of {totalTeams} teams</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+
+            {!data && (
+              <div className="empty-card">
+                {busy ? (
+                  <p><RefreshCw size={16} className="spin" /> Loading Sleeper league data…</p>
+                ) : (
+                  <p>Enter any public Sleeper League ID above to calculate live expected wins and schedule luck.</p>
+                )}
+              </div>
+            )}
+            {data && displayTeams.length === 0 && (
+              <div className="empty-card">
+                <p>No franchises match “{search}”.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </>
+    )}
 
         {/* VIEW 2: WEEKLY BREAKDOWN */}
         {view === 'weekly' && analysis && (
@@ -806,92 +1012,176 @@ export default function App() {
               })}
             </div>
 
-            {/* Weekly scoring leaderboard table */}
+            {/* Weekly scoring leaderboard table & mobile cards */}
             <div className="weekly-leaderboard-box">
               <h3>Week {selectedWeek} Complete League Leaderboard</h3>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th className="th-rank">RANK</th>
-                      <th>FRANCHISE</th>
-                      <th>WEEK SCORE</th>
-                      <th>H2H OPPONENT</th>
-                      <th>H2H RESULT</th>
-                      <th>EXPECTED WIN SHARE</th>
-                      {hasMedian && <th>MEDIAN WIN</th>}
-                      <th>WEEKLY LUCK Δ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedWeekPerformances.map((item, idx) => {
-                      const p = item.perf
-                      const medianCutoffIdx = Math.floor(selectedWeekPerformances.length / 2)
-                      const isMedianBoundary = hasMedian && idx === medianCutoffIdx - 1
-                      const oppTeam = p.oppRosterId
-                        ? analysis.teams.find((t) => t.rosterId === p.oppRosterId)
-                        : null
 
-                      return (
-                        <tr
-                          key={item.team.rosterId}
-                          className={isMedianBoundary ? 'median-boundary-row' : ''}
-                        >
-                          <td className="td-rank">#{p.rank}</td>
-                          <td>
-                            <div className="team-cell">
-                              <span className="team-title">{item.team.teamName}</span>
-                            </div>
-                          </td>
-                          <td>
-                            <strong>{formatDec(p.points, 2)}</strong> pts
-                          </td>
-                          <td>
-                            {oppTeam ? (
-                              <span className="opp-meta">
-                                vs {oppTeam.teamName} ({formatDec(p.oppPoints ?? 0, 1)})
-                              </span>
-                            ) : (
-                              <span className="summary-muted">Bye</span>
-                            )}
-                          </td>
-                          <td>
-                            <span
-                              className={`matchup-result-badge ${
-                                p.h2hActualWins === 1 ? 'w' : p.h2hActualWins === 0.5 ? 't' : 'l'
-                              }`}
-                            >
-                              {p.h2hActualWins === 1 ? 'WIN' : p.h2hActualWins === 0.5 ? 'TIE' : 'LOSS'}
-                            </span>
-                          </td>
-                          <td>
-                            <strong>{formatDec(p.h2hExpectedWins, 2)}</strong>
-                            <span className="stat-sub">
-                              ({p.allPlayWins}/{totalTeams - 1} beaten)
-                            </span>
-                          </td>
-                          {hasMedian && (
+              {/* Desktop Leaderboard Table (>= 769px) */}
+              <div className="desktop-table-view">
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th className="th-rank">RANK</th>
+                        <th>FRANCHISE</th>
+                        <th>WEEK SCORE</th>
+                        <th>H2H OPPONENT</th>
+                        <th>H2H RESULT</th>
+                        <th>EXPECTED WIN SHARE</th>
+                        {hasMedian && <th>MEDIAN WIN</th>}
+                        <th>WEEKLY LUCK Δ</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedWeekPerformances.map((item, idx) => {
+                        const p = item.perf
+                        const medianCutoffIdx = Math.floor(selectedWeekPerformances.length / 2)
+                        const isMedianBoundary = hasMedian && idx === medianCutoffIdx - 1
+                        const oppTeam = p.oppRosterId
+                          ? analysis.teams.find((t) => t.rosterId === p.oppRosterId)
+                          : null
+
+                        return (
+                          <tr
+                            key={item.team.rosterId}
+                            className={isMedianBoundary ? 'median-boundary-row' : ''}
+                          >
+                            <td className="td-rank">#{p.rank}</td>
                             <td>
-                              <span className={`median-pill ${p.medianActualWins === 1 ? 'earned' : 'missed'}`}>
-                                {p.medianActualWins === 1 ? '+1.0 WIN' : '0.0'}
+                              <div className="team-cell">
+                                <span className="team-title">{item.team.teamName}</span>
+                              </div>
+                            </td>
+                            <td>
+                              <strong>{formatDec(p.points, 2)}</strong> pts
+                            </td>
+                            <td>
+                              {oppTeam ? (
+                                <span className="opp-meta">
+                                  vs {oppTeam.teamName} ({formatDec(p.oppPoints ?? 0, 1)})
+                                </span>
+                              ) : (
+                                <span className="summary-muted">Bye</span>
+                              )}
+                            </td>
+                            <td>
+                              <span
+                                className={`matchup-result-badge ${
+                                  p.h2hActualWins === 1 ? 'w' : p.h2hActualWins === 0.5 ? 't' : 'l'
+                                }`}
+                              >
+                                {p.h2hActualWins === 1 ? 'WIN' : p.h2hActualWins === 0.5 ? 'TIE' : 'LOSS'}
                               </span>
                             </td>
-                          )}
-                          <td>
-                            <span
-                              className={`luck-tag ${
-                                p.totalLuck > 0.15 ? 'pos' : p.totalLuck < -0.15 ? 'neg' : 'neu'
-                              }`}
-                            >
-                              {p.totalLuck > 0 ? '+' : ''}
-                              {formatDec(p.totalLuck, 2)}
+                            <td>
+                              <strong>{formatDec(p.h2hExpectedWins, 2)}</strong>
+                              <span className="stat-sub">
+                                ({p.allPlayWins}/{totalTeams - 1} beaten)
+                              </span>
+                            </td>
+                            {hasMedian && (
+                              <td>
+                                <span className={`median-pill ${p.medianActualWins === 1 ? 'earned' : 'missed'}`}>
+                                  {p.medianActualWins === 1 ? '+1.0 WIN' : '0.0'}
+                                </span>
+                              </td>
+                            )}
+                            <td>
+                              <span
+                                className={`luck-tag ${
+                                  p.totalLuck > 0.15 ? 'pos' : p.totalLuck < -0.15 ? 'neg' : 'neu'
+                                }`}
+                              >
+                                {p.totalLuck > 0 ? '+' : ''}
+                                {formatDec(p.totalLuck, 2)}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Mobile Leaderboard Cards (<= 768px, NO horizontal scrolling) */}
+              <div className="mobile-cards-view">
+                <div className="m-weekly-cards-list">
+                  {selectedWeekPerformances.map((item, idx) => {
+                    const p = item.perf
+                    const medianCutoffIdx = Math.floor(selectedWeekPerformances.length / 2)
+                    const isMedianBoundary = hasMedian && idx === medianCutoffIdx - 1
+                    const oppTeam = p.oppRosterId
+                      ? analysis.teams.find((t) => t.rosterId === p.oppRosterId)
+                      : null
+
+                    return (
+                      <div key={item.team.rosterId} className="m-weekly-item-wrap">
+                        <div className="m-weekly-card">
+                          <div className="m-weekly-card-top">
+                            <div className="m-weekly-team-group">
+                              <span className="m-weekly-rank">#{p.rank}</span>
+                              <span className="m-weekly-team-name">{item.team.teamName}</span>
+                            </div>
+                            <span className="m-weekly-score">
+                              <strong>{formatDec(p.points, 2)}</strong> pts
                             </span>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                          </div>
+
+                          <div className="m-weekly-card-bottom">
+                            <div className="m-weekly-opp-line">
+                              {oppTeam ? (
+                                <>
+                                  <span className="m-opp-label">vs {oppTeam.teamName}</span>
+                                  <span className="m-opp-pts">({formatDec(p.oppPoints ?? 0, 1)})</span>
+                                </>
+                              ) : (
+                                <span className="m-opp-label">Bye Week</span>
+                              )}
+                              <span
+                                className={`matchup-result-badge ${
+                                  p.h2hActualWins === 1 ? 'w' : p.h2hActualWins === 0.5 ? 't' : 'l'
+                                }`}
+                              >
+                                {p.h2hActualWins === 1 ? 'WIN' : p.h2hActualWins === 0.5 ? 'TIE' : 'LOSS'}
+                              </span>
+                            </div>
+
+                            <div className="m-weekly-stats-chips">
+                              <span className="m-chip">
+                                xW: <strong>{formatDec(p.h2hExpectedWins, 2)}</strong>
+                              </span>
+                              {hasMedian && (
+                                <span
+                                  className={`m-chip ${
+                                    p.medianActualWins === 1 ? 'earned' : 'missed'
+                                  }`}
+                                >
+                                  Median: <strong>{p.medianActualWins === 1 ? '+1.0' : '0.0'}</strong>
+                                </span>
+                              )}
+                              <span
+                                className={`luck-tag ${
+                                  p.totalLuck > 0.15 ? 'pos' : p.totalLuck < -0.15 ? 'neg' : 'neu'
+                                }`}
+                              >
+                                {p.totalLuck > 0 ? '+' : ''}
+                                {formatDec(p.totalLuck, 2)} Luck
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {isMedianBoundary && (
+                          <div className="m-median-divider">
+                            <Award size={13} />
+                            <span>MEDIAN CUTOFF · TOP {medianCutoffIdx} TEAMS GET +1.0 MEDIAN WIN</span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           </div>
@@ -901,52 +1191,194 @@ export default function App() {
         {view === 'matrix' && analysis && (
           <div className="matrix-container">
             <p className="matrix-description">
-              <strong>What if you played someone else’s schedule?</strong> The matrix below takes each team’s actual weekly scores and pits them against the opponents faced by every other league member.
+              <strong>What if you played someone else’s schedule?</strong> Takes each franchise’s weekly scores and pits them against the opponents faced by every other league member.
             </p>
-            <div className="table-wrap">
-              <table className="matrix-table">
-                <thead>
-                  <tr>
-                    <th className="sticky-col">FRANCHISE</th>
-                    {analysis.teams.map((t) => (
-                      <th key={t.rosterId} title={t.teamName}>
-                        {t.teamName.slice(0, 10)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {analysis.teams.map((teamA) => (
-                    <tr key={teamA.rosterId}>
-                      <td className="sticky-col">
-                        <span className="team-title">{teamA.teamName}</span>
-                      </td>
-                      {analysis.teams.map((teamB) => {
-                        const entry = analysis.scheduleMatrix.find(
-                          (m) =>
-                            m.teamRosterId === teamA.rosterId &&
-                            m.scheduleOfRosterId === teamB.rosterId,
-                        )
-                        const isOwn = teamA.rosterId === teamB.rosterId
-                        if (!entry) return <td key={teamB.rosterId}>--</td>
 
-                        return (
-                          <td
-                            key={teamB.rosterId}
-                            className={`matrix-cell ${isOwn ? 'own-schedule' : ''}`}
-                            title={`${teamA.teamName} on ${teamB.teamName}'s schedule`}
-                          >
-                            <span className="matrix-wins">
-                              {formatDec(entry.hypotheticalWins, 0)}-{formatDec(entry.hypotheticalLosses, 0)}
-                            </span>
-                            <span className="matrix-pct">{formatPct(entry.winPct)}</span>
-                          </td>
-                        )
-                      })}
+            {/* Desktop Full 12x12 Matrix Grid (>= 769px) */}
+            <div className="desktop-table-view">
+              <div className="table-wrap">
+                <table className="matrix-table">
+                  <thead>
+                    <tr>
+                      <th className="sticky-col">FRANCHISE</th>
+                      {analysis.teams.map((t) => (
+                        <th key={t.rosterId} title={t.teamName}>
+                          {t.teamName.slice(0, 10)}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {analysis.teams.map((teamA) => (
+                      <tr key={teamA.rosterId}>
+                        <td className="sticky-col">
+                          <span className="team-title">{teamA.teamName}</span>
+                        </td>
+                        {analysis.teams.map((teamB) => {
+                          const entry = analysis.scheduleMatrix.find(
+                            (m) =>
+                              m.teamRosterId === teamA.rosterId &&
+                              m.scheduleOfRosterId === teamB.rosterId,
+                          )
+                          const isOwn = teamA.rosterId === teamB.rosterId
+                          if (!entry) return <td key={teamB.rosterId}>--</td>
+
+                          return (
+                            <td
+                              key={teamB.rosterId}
+                              className={`matrix-cell ${isOwn ? 'own-schedule' : ''}`}
+                              title={`${teamA.teamName} on ${teamB.teamName}'s schedule`}
+                            >
+                              <span className="matrix-wins">
+                                {formatDec(entry.hypotheticalWins, 0)}-{formatDec(entry.hypotheticalLosses, 0)}
+                              </span>
+                              <span className="matrix-pct">{formatPct(entry.winPct)}</span>
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Mobile Schedule Matrix Inspector (<= 768px, NO horizontal scrolling) */}
+            <div className="mobile-matrix-view">
+              {activeMatrixTeam && (
+                <div className="mobile-matrix-inspector">
+                  <div className="m-inspector-picker">
+                    <label htmlFor="m-matrix-team-select">INSPECT SCHEDULE FOR:</label>
+                    <select
+                      id="m-matrix-team-select"
+                      value={activeMatrixTeam.rosterId}
+                      onChange={(e) => setMatrixTeamId(Number(e.target.value))}
+                      className="m-inspector-select"
+                    >
+                      {analysis.teams.map((t) => (
+                        <option key={t.rosterId} value={t.rosterId}>
+                          {t.teamName} ({t.actualWins}–{t.actualLosses})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="m-inspector-summary-grid">
+                    <div className="m-summary-chip">
+                      <span className="chip-tag">REAL RECORD</span>
+                      <strong>{activeMatrixTeam.actualWins}–{activeMatrixTeam.actualLosses}</strong>
+                      <span className="chip-sub">{formatPct(activeMatrixTeam.actualWinPct)}</span>
+                    </div>
+                    <div className="m-summary-chip highlight">
+                      <span className="chip-tag">BEST SCHEDULE</span>
+                      <strong className="accent">
+                        {matrixComparisons[0]?.ownerTeam.teamName.slice(0, 11)}
+                      </strong>
+                      <span className="chip-sub">
+                        {matrixComparisons[0]?.hypotheticalWins}–{matrixComparisons[0]?.hypotheticalLosses} ({formatPct(matrixComparisons[0]?.winPct ?? 0)})
+                      </span>
+                    </div>
+                    <div className="m-summary-chip">
+                      <span className="chip-tag">TOUGHEST</span>
+                      <strong>
+                        {matrixComparisons[matrixComparisons.length - 1]?.ownerTeam.teamName.slice(0, 11)}
+                      </strong>
+                      <span className="chip-sub">
+                        {matrixComparisons[matrixComparisons.length - 1]?.hypotheticalWins}–{matrixComparisons[matrixComparisons.length - 1]?.hypotheticalLosses}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="m-schedule-cards-list">
+                    {matrixComparisons.map((c) => {
+                      const deltaSign = c.deltaFromOwn > 0 ? '+' : ''
+                      return (
+                        <div
+                          key={c.ownerTeam.rosterId}
+                          className={`m-sim-schedule-card ${c.isOwn ? 'own-schedule' : ''}`}
+                        >
+                          <div className="m-sim-card-left">
+                            <span className="m-sim-title">
+                              {c.isOwn ? 'Real Schedule (Actual Opponents)' : `On ${c.ownerTeam.teamName}'s Schedule`}
+                            </span>
+                            <span className="m-sim-desc">
+                              {c.isOwn
+                                ? 'Their actual opponents faced'
+                                : c.deltaFromOwn === 0
+                                ? 'Identical record'
+                                : `${deltaSign}${formatDec(c.deltaFromOwn, 1)} wins vs real schedule`}
+                            </span>
+                          </div>
+                          <div className="m-sim-card-right">
+                            <strong className="m-sim-rec">
+                              {formatDec(c.hypotheticalWins, 0)}–{formatDec(c.hypotheticalLosses, 0)}
+                            </strong>
+                            <span className="m-sim-pct">{formatPct(c.winPct)}</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <div className="m-raw-toggle-wrap">
+                    <button
+                      type="button"
+                      className="m-toggle-raw-btn"
+                      onClick={() => setShowRawMatrix(!showRawMatrix)}
+                    >
+                      <Grid3x3 size={13} />
+                      <span>{showRawMatrix ? 'Hide Full 12x12 Matrix Grid' : 'View Full 12x12 Matrix Grid'}</span>
+                    </button>
+                  </div>
+
+                  {showRawMatrix && (
+                    <div className="table-wrap raw-matrix-reveal">
+                      <table className="matrix-table">
+                        <thead>
+                          <tr>
+                            <th className="sticky-col">FRANCHISE</th>
+                            {analysis.teams.map((t) => (
+                              <th key={t.rosterId} title={t.teamName}>
+                                {t.teamName.slice(0, 10)}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {analysis.teams.map((teamA) => (
+                            <tr key={teamA.rosterId}>
+                              <td className="sticky-col">
+                                <span className="team-title">{teamA.teamName}</span>
+                              </td>
+                              {analysis.teams.map((teamB) => {
+                                const entry = analysis.scheduleMatrix.find(
+                                  (m) =>
+                                    m.teamRosterId === teamA.rosterId &&
+                                    m.scheduleOfRosterId === teamB.rosterId,
+                                )
+                                const isOwn = teamA.rosterId === teamB.rosterId
+                                if (!entry) return <td key={teamB.rosterId}>--</td>
+
+                                return (
+                                  <td
+                                    key={teamB.rosterId}
+                                    className={`matrix-cell ${isOwn ? 'own-schedule' : ''}`}
+                                  >
+                                    <span className="matrix-wins">
+                                      {formatDec(entry.hypotheticalWins, 0)}-{formatDec(entry.hypotheticalLosses, 0)}
+                                    </span>
+                                    <span className="matrix-pct">{formatPct(entry.winPct)}</span>
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
