@@ -1284,9 +1284,83 @@ export default function App() {
               </div>
             </div>
 
-            {/* Mobile Schedule Matrix Inspector (<= 768px, NO horizontal scrolling) */}
+            {/* Mobile Schedule Matrix View (<= 768px) */}
             <div className="mobile-matrix-view">
-              {activeMatrixTeam && (
+              {/* TOP MODE TOGGLE ABOVE TEAM DROPDOWN */}
+              <div className="m-matrix-mode-bar">
+                <button
+                  type="button"
+                  className={`m-mode-btn ${!showRawMatrix ? 'active' : ''}`}
+                  onClick={() => setShowRawMatrix(false)}
+                >
+                  <Award size={13} />
+                  <span>Team Inspector</span>
+                </button>
+                <button
+                  type="button"
+                  className={`m-mode-btn ${showRawMatrix ? 'active' : ''}`}
+                  onClick={() => setShowRawMatrix(true)}
+                >
+                  <Grid3x3 size={13} />
+                  <span>Full 12×12 Matrix Grid</span>
+                </button>
+              </div>
+
+              {/* VIEW 1: FULL 12x12 GRID ON MOBILE (WHEN TOGGLED) */}
+              {showRawMatrix && (
+                <div className="m-full-matrix-wrap">
+                  <div className="m-matrix-scroll-hint">
+                    <span>👈 Swipe horizontally to view all schedules · Left column is pinned 👉</span>
+                  </div>
+                  <div className="table-wrap raw-matrix-reveal">
+                    <table className="matrix-table">
+                      <thead>
+                        <tr>
+                          <th className="sticky-col">FRANCHISE</th>
+                          {analysis.teams.map((t) => (
+                            <th key={t.rosterId} title={t.teamName}>
+                              {t.teamName.slice(0, 10)}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {analysis.teams.map((teamA) => (
+                          <tr key={teamA.rosterId}>
+                            <td className="sticky-col">
+                              <span className="team-title">{teamA.teamName}</span>
+                            </td>
+                            {analysis.teams.map((teamB) => {
+                              const entry = analysis.scheduleMatrix.find(
+                                (m) =>
+                                  m.teamRosterId === teamA.rosterId &&
+                                  m.scheduleOfRosterId === teamB.rosterId,
+                              )
+                              const isOwn = teamA.rosterId === teamB.rosterId
+                              if (!entry) return <td key={teamB.rosterId}>--</td>
+
+                              return (
+                                <td
+                                  key={teamB.rosterId}
+                                  className={`matrix-cell ${isOwn ? 'own-schedule' : ''}`}
+                                >
+                                  <span className="matrix-wins">
+                                    {formatDec(entry.hypotheticalWins, 0)}-{formatDec(entry.hypotheticalLosses, 0)}
+                                  </span>
+                                  <span className="matrix-pct">{formatPct(entry.winPct)}</span>
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* VIEW 2: TEAM SCHEDULE INSPECTOR (WHEN NOT SHOWING FULL GRID) */}
+              {!showRawMatrix && activeMatrixTeam && (
                 <div className="mobile-matrix-inspector">
                   <div className="m-inspector-picker">
                     <label htmlFor="m-matrix-team-select">INSPECT SCHEDULE FOR:</label>
@@ -1360,64 +1434,6 @@ export default function App() {
                       )
                     })}
                   </div>
-
-                  <div className="m-raw-toggle-wrap">
-                    <button
-                      type="button"
-                      className="m-toggle-raw-btn"
-                      onClick={() => setShowRawMatrix(!showRawMatrix)}
-                    >
-                      <Grid3x3 size={13} />
-                      <span>{showRawMatrix ? 'Hide Full 12x12 Matrix Grid' : 'View Full 12x12 Matrix Grid'}</span>
-                    </button>
-                  </div>
-
-                  {showRawMatrix && (
-                    <div className="table-wrap raw-matrix-reveal">
-                      <table className="matrix-table">
-                        <thead>
-                          <tr>
-                            <th className="sticky-col">FRANCHISE</th>
-                            {analysis.teams.map((t) => (
-                              <th key={t.rosterId} title={t.teamName}>
-                                {t.teamName.slice(0, 10)}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {analysis.teams.map((teamA) => (
-                            <tr key={teamA.rosterId}>
-                              <td className="sticky-col">
-                                <span className="team-title">{teamA.teamName}</span>
-                              </td>
-                              {analysis.teams.map((teamB) => {
-                                const entry = analysis.scheduleMatrix.find(
-                                  (m) =>
-                                    m.teamRosterId === teamA.rosterId &&
-                                    m.scheduleOfRosterId === teamB.rosterId,
-                                )
-                                const isOwn = teamA.rosterId === teamB.rosterId
-                                if (!entry) return <td key={teamB.rosterId}>--</td>
-
-                                return (
-                                  <td
-                                    key={teamB.rosterId}
-                                    className={`matrix-cell ${isOwn ? 'own-schedule' : ''}`}
-                                  >
-                                    <span className="matrix-wins">
-                                      {formatDec(entry.hypotheticalWins, 0)}-{formatDec(entry.hypotheticalLosses, 0)}
-                                    </span>
-                                    <span className="matrix-pct">{formatPct(entry.winPct)}</span>
-                                  </td>
-                                )
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
                 </div>
               )}
             </div>

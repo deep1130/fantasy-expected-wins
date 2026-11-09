@@ -442,6 +442,13 @@ h1 em {
 /* TABLES */
 .table-wrap {
   overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
@@ -808,11 +815,23 @@ tbody tr:last-child td {
   line-height: 1.5;
   margin-bottom: 14px;
 }
+.matrix-table {
+  width: max-content !important;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
 .matrix-table th {
   text-align: center;
+  min-width: 72px;
+  width: 72px;
+  padding: 6px 8px;
 }
 .matrix-table td {
   text-align: center;
+  min-width: 72px;
+  width: 72px;
+  padding: 6px 8px;
 }
 .matrix-cell {
   font-family: var(--mono);
@@ -835,11 +854,15 @@ tbody tr:last-child td {
   position: sticky;
   left: 0;
   background: var(--surface);
-  z-index: 2;
+  z-index: 10;
   text-align: left !important;
   border-right: 1px solid var(--line);
+  min-width: 125px;
+  max-width: 140px;
+  box-shadow: 3px 0 8px rgba(0, 0, 0, 0.45);
 }
 thead .sticky-col {
+  z-index: 12;
   background: var(--surface-raised);
 }
 
@@ -1358,11 +1381,72 @@ thead .sticky-col {
   text-align: center;
 }
 
-/* MOBILE SCHEDULE MATRIX INSPECTOR */
+/* MOBILE SCHEDULE MATRIX */
+.mobile-matrix-view {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+.m-matrix-mode-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 4px;
+  border-radius: 8px;
+  margin-bottom: 2px;
+}
+.m-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  font: 600 11px var(--mono);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.m-mode-btn:hover {
+  color: var(--ink);
+}
+.m-mode-btn.active {
+  background: var(--surface-raised);
+  color: var(--accent-text);
+  border-color: var(--accent-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.m-full-matrix-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+}
+.m-matrix-scroll-hint {
+  padding: 7px 10px;
+  background: rgba(96, 165, 250, 0.08);
+  border: 1px dashed var(--accent-border);
+  border-radius: 6px;
+  color: var(--accent-text);
+  font: 600 10px var(--mono);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
 .mobile-matrix-inspector {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
 }
 .m-inspector-picker {
   display: flex;
@@ -1476,29 +1560,11 @@ thead .sticky-col {
   font: 10px var(--mono);
   color: var(--muted);
 }
-.m-raw-toggle-wrap {
-  display: flex;
-  justify-content: center;
-  margin-top: 6px;
-}
-.m-toggle-raw-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: var(--surface-raised);
-  border: 1px solid var(--line);
-  color: var(--accent-text);
-  font: 600 11px var(--mono);
-  border-radius: 6px;
-  cursor: pointer;
-}
-.m-toggle-raw-btn:hover {
-  background: var(--control-hover);
-  color: #fff;
-}
 .raw-matrix-reveal {
-  margin-top: 10px;
+  margin-top: 4px;
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
 }
 .bottom-note {
   padding: 24px 0 0;
@@ -1547,6 +1613,9 @@ thead .sticky-col {
     display: flex !important;
     flex-direction: column;
     gap: 14px;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
   }
   .tab-label-short {
     display: inline !important;
