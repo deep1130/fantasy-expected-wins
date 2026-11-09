@@ -34,7 +34,7 @@ import {
 import { LineupBlundersView } from './LineupBlundersView'
 import './App.css'
 
-type View = 'standings' | 'weekly' | 'matrix' | 'superlatives' | 'blunders'
+type View = 'standings' | 'weekly' | 'matrix' | 'superlatives' | 'blunders' | 'drops'
 type SortField =
   | 'expectedWins'
   | 'actualWins'
@@ -69,7 +69,7 @@ function getInitialView(): View {
       new URLSearchParams(window.location.search).get('tab')
     if (
       fromQuery &&
-      ['standings', 'weekly', 'matrix', 'superlatives', 'blunders'].includes(fromQuery)
+      ['standings', 'weekly', 'matrix', 'superlatives', 'blunders', 'drops'].includes(fromQuery)
     ) {
       return fromQuery as View
     }
@@ -162,7 +162,11 @@ export default function App() {
 
   // Pre-load NFL player data, transactions & weekly stats in background
   useEffect(() => {
-    if ((data || view === 'blunders') && Object.keys(playersMap).length === 0 && !isLoadingPlayers) {
+    if (
+      (data || view === 'blunders' || view === 'drops') &&
+      Object.keys(playersMap).length === 0 &&
+      !isLoadingPlayers
+    ) {
       setIsLoadingPlayers(true)
       fetchSleeperPlayers()
         .then((map) => setPlayersMap(map))
@@ -601,7 +605,8 @@ export default function App() {
               {view === 'weekly' && `WEEK ${selectedWeek} BREAKDOWN`}
               {view === 'matrix' && 'SCHEDULE SIMULATION'}
               {view === 'superlatives' && 'SUPERLATIVES'}
-              {view === 'blunders' && 'LINEUP REGRET & WRONG CHOICES'}
+              {view === 'blunders' && 'WEEKLY BENCH START/SIT'}
+              {view === 'drops' && 'WAIVER WIRE REGRETS'}
               <span>·</span> {analysis ? `${analysis.totalTeams} TEAMS` : 'EXPECTED WINS'}
             </p>
             <h2>
@@ -609,7 +614,8 @@ export default function App() {
               {view === 'weekly' && `Week ${selectedWeek} Matchup Outcomes & Win Shares`}
               {view === 'matrix' && 'What-If Schedule Simulation Matrix'}
               {view === 'superlatives' && 'Worst Bad Beats & Lucky Escapes'}
-              {view === 'blunders' && 'Biggest Lineup Blunders & Flipped Wins'}
+              {view === 'blunders' && 'Weekly Lineups Lost on the Bench'}
+              {view === 'drops' && 'Waiver Add/Drop Issues & Claimer Impact'}
             </h2>
           </div>
 
@@ -685,8 +691,17 @@ export default function App() {
                 onClick={() => changeView('blunders')}
               >
                 <Flame size={12} />
-                <span className="tab-label-full">Lineup Blunders</span>
-                <span className="tab-label-short">Blunders</span>
+                <span className="tab-label-full">Bench Blunders</span>
+                <span className="tab-label-short">Bench</span>
+              </button>
+              <button
+                type="button"
+                className={view === 'drops' ? 'selected' : ''}
+                onClick={() => changeView('drops')}
+              >
+                <CircleAlert size={12} />
+                <span className="tab-label-full">Add/Drop Issues</span>
+                <span className="tab-label-short">Add/Drop</span>
               </button>
             </div>
           </div>
@@ -1605,9 +1620,10 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW 5: LINEUP BLUNDERS / WRONG CHOICES */}
-        {view === 'blunders' && data && (
+        {/* VIEW 5 & 6: BENCH BLUNDERS / WAIVER ADD-DROP ISSUES */}
+        {(view === 'blunders' || view === 'drops') && data && (
           <LineupBlundersView
+            mode={view === 'drops' ? 'drop' : 'bench'}
             leagueData={data}
             playersMap={playersMap}
             isLoadingPlayers={isLoadingPlayers}

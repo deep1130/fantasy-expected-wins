@@ -5,17 +5,17 @@ import {
   CheckCircle2,
   ChevronDown,
   Flame,
-  TrendingDown,
   UserMinus,
   Users,
 } from 'lucide-react'
 import type { LeagueData } from './sleeper'
 import type { SleeperPlayer } from './sleeperPlayers'
 import type { SleeperTransaction } from './sleeperTransactions'
-import { computeLineupBlunders } from './lineupBlunders'
+import { computeLineupBlunders, type BlunderType } from './lineupBlunders'
 import './LineupBlunders.css'
 
 interface LineupBlundersViewProps {
+  mode: BlunderType
   leagueData: LeagueData
   playersMap: Record<string, SleeperPlayer>
   isLoadingPlayers: boolean
@@ -25,6 +25,7 @@ interface LineupBlundersViewProps {
 }
 
 export function LineupBlundersView({
+  mode,
   leagueData,
   playersMap,
   isLoadingPlayers,
@@ -33,12 +34,18 @@ export function LineupBlundersView({
   projections,
 }: LineupBlundersViewProps) {
   const [selectedRosterId, setSelectedRosterId] = useState<number | null>(null)
-  const [filterType, setFilterType] = useState<'all' | 'bench' | 'drop'>('all')
 
   const summaries = useMemo(() => {
     if (Object.keys(playersMap).length === 0) return []
-    return computeLineupBlunders(leagueData, playersMap, transactions, weeklyStats, projections)
-  }, [leagueData, playersMap, transactions, weeklyStats, projections])
+    return computeLineupBlunders(
+      leagueData,
+      playersMap,
+      transactions,
+      weeklyStats,
+      projections,
+      mode,
+    )
+  }, [leagueData, playersMap, transactions, weeklyStats, projections, mode])
 
   const activeRosterId = useMemo(() => {
     if (selectedRosterId != null && summaries.some((s) => s.rosterId === selectedRosterId)) {
@@ -51,16 +58,8 @@ export function LineupBlundersView({
     return summaries.find((s) => s.rosterId === activeRosterId) || null
   }, [summaries, activeRosterId])
 
-  const filteredChoices = useMemo(() => {
-    if (!selectedTeam) return []
-    if (filterType === 'all') return selectedTeam.wrongChoices
-    return selectedTeam.wrongChoices.filter((c) => c.blunderType === filterType)
-  }, [selectedTeam, filterType])
-
-  const stats = useMemo(() => {
+  const summaryStats = useMemo(() => {
     let totalWins = 0
-    let benchWins = 0
-    let dropWins = 0
     let biggest: {
       pointsGained: number
       starter: string
@@ -68,13 +67,23 @@ export function LineupBlundersView({
       team: string
       wins: number
       week: number
+      claimerTeam?: string | null
+      claimerWinsLost?: number
+    } | null = null
+
+    let topClaimerSwing: {
+      dropperTeam: string
+      claimerTeam: string
+      player: string
+      week: number
+      pointsLost: number
+      winsLost: number
+      oppTeam: string | null
     } | null = null
 
     for (const s of summaries) {
       totalWins += s.totalWinsGained
       for (const c of s.wrongChoices) {
-        if (c.blunderType === 'bench') benchWins += c.winsGained
-        else dropWins += c.winsGained
         if (
           !biggest ||
           c.winsGained > biggest.wins ||
@@ -87,19 +96,40 @@ export function LineupBlundersView({
             team: s.teamName,
             wins: c.winsGained,
             week: c.week,
+            claimerTeam: c.claimedByTeamName,
+            claimerWinsLost: c.claimerImpact?.winsLost ?? 0,
+          }
+        }
+        if (c.claimerImpact?.startedPlayer) {
+          if (
+            !topClaimerSwing ||
+            c.claimerImpact.winsLost > topClaimerSwing.winsLost ||
+            (c.claimerImpact.winsLost === topClaimerSwing.winsLost &&
+              c.claimerImpact.pointsLost > topClaimerSwing.pointsLost)
+          ) {
+            topClaimerSwing = {
+              dropperTeam: s.teamName,
+              claimerTeam: c.claimerImpact.teamName,
+              player: c.subName,
+              week: c.week,
+              pointsLost: c.claimerImpact.pointsLost,
+              winsLost: c.claimerImpact.winsLost,
+              oppTeam: c.claimerImpact.oppTeamName,
+            }
           }
         }
       }
     }
 
-    const cleanTeams = summaries.filter((s) => s.totalWinsGained === 0).map((s) => s.teamName)
+    const worstTeams = summaries.filter((s) => s.totalWinsGained > 0)
+    const cleanTeams = summaries.filter((s) => s.totalWinsGained === 0)
+
     return {
       totalWins,
-      benchWins,
-      dropWins,
-      mostImpacted: summaries[0] || null,
+      worstTeam: worstTeams[0] || null,
       cleanTeams,
       biggest,
+      topClaimerSwing,
     }
   }, [summaries])
 
@@ -118,203 +148,122 @@ export function LineupBlundersView({
 
   return (
     <div className="blunders-view">
-      {/* 1. KPI Summary Strip matching .summary-strip in App.css */}
-      <div className="summary-strip blunders-kpi-strip">
-        <div className="summary-item">
-          <span className="summary-label">LEAGUE WINS LEFT ON TABLE</span>
-          <strong className="summary-value neg-text">{stats.totalWins} Wins</strong>
-          <span className="summary-sub">
-            {stats.benchWins}W from benchings · {stats.dropWins}W from waiver drops
+      {/* 1. Compact 3-Card Summary Row (Worst Choice, Best/Cleanest, Biggest Swing) */}
+      <div className="blunder-summary-row">
+        <div className="blunder-kpi-box">
+          <span className="blunder-kpi-tag neg">
+            {mode === 'bench' ? 'WORST BENCH DECISIONS' : 'MOST COSTLY WAIVER DROPS'}
           </span>
+          {summaryStats.worstTeam ? (
+            <>
+              <div className="blunder-kpi-headline">
+                <strong>{summaryStats.worstTeam.teamName}</strong>
+                <span className="luck-tag neg">-{summaryStats.worstTeam.totalWinsGained} Wins</span>
+              </div>
+              <p className="blunder-kpi-sub">
+                {summaryStats.worstTeam.actualWins}–{summaryStats.worstTeam.actualLosses} actual →{' '}
+                <strong>
+                  {summaryStats.worstTeam.potentialWins}–{summaryStats.worstTeam.potentialLosses}
+                </strong>{' '}
+                if {mode === 'bench' ? 'optimal bench started' : 'dropped players kept'} (
+                {summaryStats.totalWins}W lost league-wide)
+              </p>
+            </>
+          ) : (
+            <p className="blunder-kpi-sub">No costly decisions recorded yet.</p>
+          )}
         </div>
 
-        {stats.mostImpacted && (
-          <div className="summary-item">
-            <span className="summary-label">MOST COSTLY LINEUP DECISIONS</span>
-            <strong className="summary-value">{stats.mostImpacted.teamName}</strong>
-            <span className="summary-sub">
-              -{stats.mostImpacted.totalWinsGained} Wins ({stats.mostImpacted.actualWins}–
-              {stats.mostImpacted.actualLosses} actual → {stats.mostImpacted.potentialWins}–
-              {stats.mostImpacted.potentialLosses} optimal)
-            </span>
-          </div>
-        )}
-
-        <div className="summary-item">
-          <span className="summary-label">BEST LINEUP MANAGEMENT (0 BLUNDERS)</span>
-          <strong className="summary-value pos-text">
-            {stats.cleanTeams.length > 0 ? `${stats.cleanTeams.length} Teams` : 'None'}
-          </strong>
-          <span className="summary-sub">
-            {stats.cleanTeams.length > 0
-              ? stats.cleanTeams.join(', ')
-              : 'Every franchise had at least 1 blunder'}
+        <div className="blunder-kpi-box">
+          <span className="blunder-kpi-tag pos">
+            {mode === 'bench'
+              ? 'BEST START/SIT MANAGEMENT (0 LOST)'
+              : 'CLEANEST WAIVER MANAGEMENT (0 LOST)'}
           </span>
+          <div className="blunder-kpi-headline">
+            <strong>
+              {summaryStats.cleanTeams.length}{' '}
+              {summaryStats.cleanTeams.length === 1 ? 'Franchise' : 'Franchises'}
+            </strong>
+            <span className="luck-tag pos">0 Blunders</span>
+          </div>
+          <p className="blunder-kpi-sub">
+            {summaryStats.cleanTeams.length > 0
+              ? summaryStats.cleanTeams.map((t) => t.teamName).join(' · ')
+              : 'Every franchise had at least 1 win-costing decision'}
+          </p>
         </div>
 
-        {stats.biggest && (
-          <div className="summary-item">
-            <span className="summary-label">BIGGEST SINGLE POINT SWING</span>
-            <strong className="summary-value">+{stats.biggest.pointsGained.toFixed(2)} pts</strong>
-            <span className="summary-sub">
-              W{stats.biggest.week} {stats.biggest.team}: {stats.biggest.sub} over{' '}
-              {stats.biggest.starter}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* 2. League Summary Table (Desktop) & Compact Leaderboard (Mobile) */}
-      <div className="desktop-table-view">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th className="th-rank">#</th>
-                <th>FRANCHISE</th>
-                <th>ACTUAL W–L</th>
-                <th>WHAT-IF W–L</th>
-                <th>WINS LOST</th>
-                <th>DECISION SPLIT</th>
-                <th>MOST COSTLY REALISTIC BLUNDER</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summaries.map((team, idx) => {
-                const isSelected = team.rosterId === activeRosterId
-                const top = team.wrongChoices[0]
-                return (
-                  <tr
-                    key={team.rosterId}
-                    className={`blunder-table-row ${isSelected ? 'is-selected' : ''}`}
-                    onClick={() => {
-                      setSelectedRosterId(team.rosterId)
-                      setFilterType('all')
-                    }}
-                  >
-                    <td className="td-rank">{idx + 1}</td>
-                    <td>
-                      <div className="team-cell">
-                        {team.avatarUrl ? (
-                          <img
-                            src={team.avatarUrl}
-                            alt={team.teamName}
-                            className="team-avatar"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="team-avatar-fallback">
-                            {team.teamName.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                        <div className="team-meta">
-                          <span className="team-title">{team.teamName}</span>
-                          <span className="team-sub">{team.ownerName}</span>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="stat-primary">
-                        <strong>
-                          {team.actualWins} – {team.actualLosses}
-                        </strong>
-                        <span className="stat-sub">
-                          {leagueData.hasMedianMatch
-                            ? `${team.h2hWins}-${team.h2hLosses} H2H · ${team.medianWins}-${team.medianLosses} Med`
-                            : 'Official'}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="stat-primary">
-                        <strong className={team.totalWinsGained > 0 ? 'pos-text' : ''}>
-                          {team.potentialWins} – {team.potentialLosses}
-                        </strong>
-                        <span className="stat-sub">
-                          {team.totalWinsGained > 0
-                            ? `If top ${team.wrongChoices.length} fixed`
-                            : 'Already optimal'}
-                        </span>
-                      </div>
-                    </td>
-                    <td>
-                      {team.totalWinsGained > 0 ? (
-                        <span
-                          className={`luck-pill ${
-                            team.totalWinsGained >= 3 ? 'very-unlucky' : 'unlucky'
-                          }`}
-                        >
-                          <TrendingDown size={12} />
-                          <strong>-{team.totalWinsGained} W</strong>
-                        </span>
-                      ) : (
-                        <span className="luck-pill very-lucky">
-                          <CheckCircle2 size={12} />
-                          <strong>0 W</strong>
-                          <span className="luck-label">CLEAN</span>
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <div className="stat-primary">
-                        <span>
-                          {team.benchBlundersCount} Bench · {team.dropBlundersCount} Drop
-                        </span>
-                        {team.claimerWinsCostTotal > 0 && (
-                          <span className="stat-sub neg-text">
-                            Gifted +{team.claimerWinsCostTotal}W to claimer
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="blunder-top-cell">
-                      {top ? (
-                        <div className="blunder-top-summary">
-                          <span className="blunder-week-chip">W{top.week}</span>
-                          <span className="blunder-top-text">
-                            {top.blunderType === 'drop' ? 'Dropped ' : 'Benched '}
-                            <strong>{top.subName}</strong> ({top.subPoints.toFixed(1)}) over{' '}
-                            {top.starterName} ({top.starterPoints.toFixed(1)})
-                          </span>
-                          <span className="luck-tag neg">+{top.winsGained}W</span>
-                        </div>
-                      ) : (
-                        <span className="stat-sub">No realistic win-flipping blunders</span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+        <div className="blunder-kpi-box">
+          <span className="blunder-kpi-tag accent">
+            {mode === 'bench' ? 'BIGGEST BENCH WIN FLIP' : 'CLAIMER RIPPLE IMPACT'}
+          </span>
+          {mode === 'drop' && summaryStats.topClaimerSwing ? (
+            <>
+              <div className="blunder-kpi-headline">
+                <strong>
+                  {summaryStats.topClaimerSwing.player} → {summaryStats.topClaimerSwing.claimerTeam}
+                </strong>
+                {summaryStats.topClaimerSwing.winsLost > 0 ? (
+                  <span className="luck-tag neg">
+                    -{summaryStats.topClaimerSwing.winsLost}W to Claimer
+                  </span>
+                ) : (
+                  <span className="luck-tag neu">
+                    -{summaryStats.topClaimerSwing.pointsLost.toFixed(1)} pts
+                  </span>
+                )}
+              </div>
+              <p className="blunder-kpi-sub">
+                Cut by {summaryStats.topClaimerSwing.dropperTeam}; without him in W
+                {summaryStats.topClaimerSwing.week}, {summaryStats.topClaimerSwing.claimerTeam}{' '}
+                loses {summaryStats.topClaimerSwing.pointsLost.toFixed(2)} pts
+                {summaryStats.topClaimerSwing.winsLost > 0 && summaryStats.topClaimerSwing.oppTeam
+                  ? ` & loses H2H vs ${summaryStats.topClaimerSwing.oppTeam}`
+                  : ''}
+              </p>
+            </>
+          ) : summaryStats.biggest ? (
+            <>
+              <div className="blunder-kpi-headline">
+                <strong>
+                  W{summaryStats.biggest.week}: {summaryStats.biggest.sub}
+                </strong>
+                <span className="luck-tag pos">+{summaryStats.biggest.pointsGained.toFixed(2)} pts</span>
+              </div>
+              <p className="blunder-kpi-sub">
+                {summaryStats.biggest.team} started {summaryStats.biggest.starter} (+
+                {summaryStats.biggest.wins}W flipped)
+              </p>
+            </>
+          ) : (
+            <p className="blunder-kpi-sub">No single blunder recorded.</p>
+          )}
         </div>
       </div>
 
-      {/* 3. Team-Specific Dropdown Inspector */}
+      {/* 2. Team-Specific Dropdown Inspector */}
       {selectedTeam && (
         <div className="superlative-box blunder-inspector-box">
           <div className="blunder-inspector-toolbar">
             <div className="blunder-selector-group">
               <div className="box-header" style={{ marginBottom: 0 }}>
                 <Users size={15} className="luck-icon" />
-                <h3>Franchise Blunder Breakdown</h3>
+                <h3>Select Franchise:</h3>
               </div>
 
               <div className="blunder-select-wrapper">
                 <select
-                  aria-label="Select franchise to inspect blunders"
+                  aria-label="Select franchise to inspect"
                   className="blunder-select"
                   value={activeRosterId ?? ''}
-                  onChange={(e) => {
-                    setSelectedRosterId(Number(e.target.value))
-                    setFilterType('all')
-                  }}
+                  onChange={(e) => setSelectedRosterId(Number(e.target.value))}
                 >
                   {summaries.map((t) => (
                     <option key={t.rosterId} value={t.rosterId}>
                       {t.teamName} ({t.ownerName}) —{' '}
                       {t.totalWinsGained > 0
-                        ? `-${t.totalWinsGained}W (${t.actualWins}-${t.actualLosses} → ${t.potentialWins}-${t.potentialLosses})`
+                        ? `-${t.totalWinsGained} ${t.totalWinsGained === 1 ? 'Win' : 'Wins'} (${t.actualWins}-${t.actualLosses} → ${t.potentialWins}-${t.potentialLosses})`
                         : `0 Blunders (${t.actualWins}-${t.actualLosses})`}
                     </option>
                   ))}
@@ -323,28 +272,23 @@ export function LineupBlundersView({
               </div>
             </div>
 
-            <div className="blunder-filter-tabs">
-              <button
-                type="button"
-                className={filterType === 'all' ? 'selected' : ''}
-                onClick={() => setFilterType('all')}
-              >
-                All ({selectedTeam.wrongChoices.length})
-              </button>
-              <button
-                type="button"
-                className={filterType === 'bench' ? 'selected' : ''}
-                onClick={() => setFilterType('bench')}
-              >
-                Bench ({selectedTeam.benchBlundersCount})
-              </button>
-              <button
-                type="button"
-                className={filterType === 'drop' ? 'selected' : ''}
-                onClick={() => setFilterType('drop')}
-              >
-                Waiver Drops ({selectedTeam.dropBlundersCount})
-              </button>
+            {/* Quick-jump team pills for teams with blunders */}
+            <div className="blunder-quick-pills">
+              {summaries
+                .filter((t) => t.totalWinsGained > 0)
+                .map((t) => (
+                  <button
+                    key={t.rosterId}
+                    type="button"
+                    className={`blunder-team-pill ${
+                      t.rosterId === activeRosterId ? 'active' : ''
+                    }`}
+                    onClick={() => setSelectedRosterId(t.rosterId)}
+                  >
+                    <span>{t.teamName}</span>
+                    <strong>-{t.totalWinsGained}W</strong>
+                  </button>
+                ))}
             </div>
           </div>
 
@@ -365,8 +309,10 @@ export function LineupBlundersView({
               <div className="team-meta">
                 <span className="team-title">{selectedTeam.teamName}</span>
                 <span className="team-sub">
-                  Managed by {selectedTeam.ownerName} · Showing up to 5 realistic projection-backed
-                  blunders
+                  {selectedTeam.ownerName} ·{' '}
+                  {mode === 'bench'
+                    ? 'Realistic weekly start/sit mistakes from active bench'
+                    : 'Players dropped on waivers who would have flipped lost matchups'}
                 </span>
               </div>
             </div>
@@ -380,51 +326,54 @@ export function LineupBlundersView({
               </div>
               <ArrowRight size={14} className="blunder-rec-arrow" />
               <div className="blunder-record-box optimal">
-                <span className="blunder-rec-label">WHAT-IF RECORD</span>
+                <span className="blunder-rec-label">
+                  {mode === 'bench' ? 'IF BENCH STARTED' : 'IF DROPS KEPT'}
+                </span>
                 <strong className="blunder-rec-val pos-text">
                   {selectedTeam.potentialWins}–{selectedTeam.potentialLosses}
                 </strong>
               </div>
-              {selectedTeam.totalWinsGained > 0 && (
+              {selectedTeam.totalWinsGained > 0 ? (
                 <span className="luck-tag pos">+{selectedTeam.totalWinsGained} Wins</span>
+              ) : (
+                <span className="luck-tag neu">0 Wins Lost</span>
               )}
             </div>
           </div>
 
-          {/* Decision List */}
-          {filteredChoices.length === 0 ? (
+          {/* Decision List (Up to 5) */}
+          {selectedTeam.wrongChoices.length === 0 ? (
             <div className="empty-card">
               <p>
                 <CheckCircle2 size={16} />
-                No realistic {filterType === 'all' ? '' : filterType} lineup blunders cost{' '}
-                {selectedTeam.teamName} a win.
+                {selectedTeam.teamName} has zero realistic{' '}
+                {mode === 'bench' ? 'bench start/sit' : 'waiver add/drop'} blunders that cost a win.
               </p>
             </div>
           ) : (
             <div className="blunder-decision-list">
-              {filteredChoices.map((c, idx) => (
+              {selectedTeam.wrongChoices.map((c, idx) => (
                 <div
                   key={`${c.week}-${c.starterId}-${c.subId}-${idx}`}
                   className={`blunder-decision-card ${
                     c.blunderType === 'drop' ? 'is-drop' : 'is-bench'
                   }`}
                 >
-                  {/* Top Bar: Week + Type + Score Context + Win Flip Tags */}
                   <div className="blunder-card-topbar">
                     <div className="blunder-card-meta">
                       <span className="blunder-week-chip">WEEK {c.week}</span>
                       <span className="blunder-slot-chip">{c.slotType}</span>
                       {c.blunderType === 'drop' ? (
                         <span className="blunder-type-badge drop">
-                          <UserMinus size={11} /> WAIVER DROP (CUT W{c.dropWeek})
+                          <UserMinus size={11} /> CUT IN WEEK {c.dropWeek}
                         </span>
                       ) : (
                         <span className="blunder-type-badge bench">
-                          <Flame size={11} /> BENCH MISTAKE
+                          <Flame size={11} /> BENCHED STARTER
                         </span>
                       )}
                       <span className="blunder-score-context">
-                        Team Score: <strong>{c.originalPoints.toFixed(2)}</strong> →{' '}
+                        Score: <strong>{c.originalPoints.toFixed(2)}</strong> →{' '}
                         <strong className="pos-text">{c.newTotalPoints.toFixed(2)} pts</strong> (vs{' '}
                         {c.oppTeamName}: {c.oppPoints.toFixed(2)})
                       </span>
@@ -439,7 +388,6 @@ export function LineupBlundersView({
                     </div>
                   </div>
 
-                  {/* Middle: Started vs Should Have Started */}
                   <div className="blunder-matchup-grid">
                     <div className="blunder-player-box started">
                       <div className="blunder-player-left">
@@ -497,7 +445,6 @@ export function LineupBlundersView({
                     </div>
                   </div>
 
-                  {/* Bottom: Win Transfers & Claiming Team Ripple Effect */}
                   <div className="blunder-ripple-footer">
                     {c.whoLosesH2H && (
                       <div className="blunder-ripple-chip">
@@ -513,17 +460,18 @@ export function LineupBlundersView({
                         <span className="luck-tag neg">-1 W</span>
                       </div>
                     )}
-                    {c.blunderType === 'drop' && c.claimedByTeamName && (
+                    {c.blunderType === 'drop' && (
                       <div className="blunder-ripple-chip claimer">
                         <span className="ripple-label">CLAIMED BY:</span>
-                        <strong>{c.claimedByTeamName}</strong>
+                        <strong>{c.claimedByTeamName || 'Unclaimed (Free Agent)'}</strong>
                         {c.claimerImpact?.startedPlayer ? (
                           <span className="ripple-claimer-detail">
                             Started {c.subName} in W{c.week} — without him (subbing{' '}
                             {c.claimerImpact.backupName
                               ? `${c.claimerImpact.backupName}, ${c.claimerImpact.backupPoints.toFixed(2)} pts`
                               : '0.00 pt backup'}
-                            ), score drops {c.claimerImpact.originalPoints.toFixed(2)} →{' '}
+                            ), {c.claimerImpact.teamName} drops{' '}
+                            {c.claimerImpact.originalPoints.toFixed(2)} →{' '}
                             {c.claimerImpact.newPoints.toFixed(2)} (-
                             {c.claimerImpact.pointsLost.toFixed(2)} pts)
                             {c.claimerImpact.winsLost > 0 ? (
@@ -538,9 +486,11 @@ export function LineupBlundersView({
                               ' · Still holds W/L result'
                             )}
                           </span>
-                        ) : (
-                          <span className="ripple-claimer-detail">(Benched in W{c.week})</span>
-                        )}
+                        ) : c.claimedByTeamName ? (
+                          <span className="ripple-claimer-detail">
+                            (On {c.claimedByTeamName} bench in W{c.week})
+                          </span>
+                        ) : null}
                       </div>
                     )}
                   </div>

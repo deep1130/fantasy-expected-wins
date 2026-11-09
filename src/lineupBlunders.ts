@@ -65,8 +65,6 @@ export interface TeamBlunderSummary {
   potentialWins: number
   potentialLosses: number
   totalWinsGained: number
-  benchBlundersCount: number
-  dropBlundersCount: number
   claimerWinsCostTotal: number
   wrongChoices: WrongChoice[]
 }
@@ -105,6 +103,7 @@ function isSlotEligible(
 function getPlayerProj(projWeek: Record<string, any> | null, playerId: string): number | null {
   if (!projWeek || !projWeek[playerId]) return null
   const p = projWeek[playerId]
+  if (p.pts_ppr == null && p.pts_half_ppr == null && p.pts_std == null) return null
   const val = Number(p.pts_ppr ?? p.pts_half_ppr ?? p.pts_std ?? 0)
   return Number.isFinite(val) ? val : null
 }
@@ -121,6 +120,7 @@ export function computeLineupBlunders(
   transactions?: SleeperTransaction[][],
   weeklyStats?: Record<string, any>[],
   projections?: Record<string, any>[],
+  mode: BlunderType = 'bench',
 ): TeamBlunderSummary[] {
   const { league, rosters, users, weeks, hasMedianMatch, totalTeams } = leagueData
 
@@ -158,7 +158,6 @@ export function computeLineupBlunders(
   )
   const medianCutoff = Math.floor(totalTeams / 2)
 
-  // Build chronological waiver/free_agent drop & claim events (excluding trades)
   interface DropEvent {
     playerId: string
     rosterId: number
@@ -168,13 +167,14 @@ export function computeLineupBlunders(
   const allDropEvents: DropEvent[] = []
   const claimedByMap = new Map<string, { rosterId: number; claimWeek: number; created: number }[]>()
 
-  if (transactions) {
+  if (transactions && mode === 'drop') {
     for (let wIdx = 0; wIdx < transactions.length; wIdx++) {
       const week = wIdx + 1
-      const weekTxs = [...(transactions[wIdx] || [])].sort((a, b) => (a.created || 0) - (b.created || 0))
+      const weekTxs = [...(transactions[wIdx] || [])].sort(
+        (a, b) => (a.created || 0) - (b.created || 0),
+      )
       for (const t of weekTxs) {
         if (t.status !== 'complete') continue
-        // Never count a trade as a waiver drop
         if (t.type === 'trade') continue
         if (t.drops) {
           for (const [pId, rId] of Object.entries(t.drops)) {
@@ -208,7 +208,6 @@ export function computeLineupBlunders(
     })
     .sort((a, b) => a - b)
 
-  // Compute actual records across all scored weeks so actual & what-if records always match
   const recordByRoster = new Map<
     number,
     { h2hW: number; h2hL: number; medW: number; medL: number; ties: number }
@@ -282,7 +281,6 @@ export function computeLineupBlunders(
       const originallyWonMedian = hasMedianMatch && originalTeamRank <= medianCutoff
       const originallyWonH2H = teamMatchup.points > oppPoints
 
-      // If team already won both H2H and Median (or H2H in non-median league), no wins were lost this week
       if (originallyWonH2H && (!hasMedianMatch || originallyWonMedian)) continue
 
       const starters = teamMatchup.starters || []
@@ -293,7 +291,6 @@ export function computeLineupBlunders(
 
       const weekChoices: WrongChoice[] = []
 
-      // Helper to evaluate a candidate (starterIdx, subId, subPts, subProj, blunderType, dropWeek)
       const evaluateCandidate = (
         sIdx: number,
         subId: string,
@@ -350,7 +347,6 @@ export function computeLineupBlunders(
               const cBench = (holdingMatchup.players || []).filter(
                 (pid) => !(holdingMatchup.starters || []).includes(pid),
               )
-              // Find claiming team's realistic replacement (highest projected eligible bench player)
               let bestBackupId: string | null = null
               let bestBackupProj = -1
               for (const bId of cBench) {
@@ -466,130 +462,127 @@ export function computeLineupBlunders(
         }
       }
 
-      // --- 1. EVALUATE REALISTIC BENCH SWAPS ---
-      for (const benchId of bench) {
-        const benchPts = pointsMap[benchId] ?? 0
-        const benchProj = getPlayerProj(projWeek, benchId)
-        // Must have a realistic pre-game projection (>= 6.5 pts) so deep dart throws like Tank Bigsby (3.45) are excluded
-        if (benchProj !== null && benchProj < 6.5) continue
+      if (mode === 'bench') {
+        for (const benchId of bench) {
+          const benchPts = pointsMap[benchId] ?? 0
+          const benchProj = getPlayerProj(projWeek, benchId)
+          if (benchProj !== null && benchProj < 6.5) continue
 
-        const benchPositions = getPlayerPositions(playersMap, benchId)
-        const eligibleStarterIndices: number[] = []
-        let minEligibleStarterProj = Infinity
+          const benchPositions = getPlayerPositions(playersMap, benchId)
+          const eligibleStarterIndices: number[] = []
+          let minEligibleStarterProj = Infinity
 
-        for (let sIdx = 0; sIdx < starters.length; sIdx++) {
-          const slotType = starterSlots[sIdx] || 'FLEX'
-          if (!isSlotEligible(slotType, benchPositions, benchProj)) continue
-          eligibleStarterIndices.push(sIdx)
-          const sProj = getPlayerProj(projWeek, starters[sIdx])
-          if (sProj !== null && sProj < minEligibleStarterProj) {
-            minEligibleStarterProj = sProj
-          }
-        }
-
-        // Pick the realistic starter that this bench player would have replaced
-        let bestBenchChoice: WrongChoice | null = null
-        for (const sIdx of eligibleStarterIndices) {
-          const sProj = getPlayerProj(projWeek, starters[sIdx])
-          if (benchProj !== null && sProj !== null) {
-            // 1. Starter vs Bench must be a realistic pre-game decision (bench projected higher, or within 2.8 pts)
-            if (sProj - benchProj > 2.8) continue
-            // 2. You would bench your lowest-projected eligible starter, not a high-projection stud
-            if (Number.isFinite(minEligibleStarterProj) && sProj > minEligibleStarterProj + 2.0) {
-              continue
+          for (let sIdx = 0; sIdx < starters.length; sIdx++) {
+            const slotType = starterSlots[sIdx] || 'FLEX'
+            if (!isSlotEligible(slotType, benchPositions, benchProj)) continue
+            eligibleStarterIndices.push(sIdx)
+            const sProj = getPlayerProj(projWeek, starters[sIdx])
+            if (sProj !== null && sProj < minEligibleStarterProj) {
+              minEligibleStarterProj = sProj
             }
           }
-          const choice = evaluateCandidate(sIdx, benchId, benchPts, benchProj, 'bench')
-          if (
-            choice &&
-            (!bestBenchChoice ||
-              choice.winsGained > bestBenchChoice.winsGained ||
-              (choice.winsGained === bestBenchChoice.winsGained &&
-                choice.pointsGained > bestBenchChoice.pointsGained))
-          ) {
-            bestBenchChoice = choice
-          }
-        }
-        if (bestBenchChoice) {
-          weekChoices.push(bestBenchChoice)
-        }
-      }
 
-      // --- 2. EVALUATE REALISTIC DROP REGRETS ---
-      // Find players whose most recent drop on or before `week` was by this roster (within 4 weeks)
-      const dropsUpToWeek = allDropEvents.filter((d) => d.dropWeek <= week)
-      const latestDropByPlayer = new Map<string, DropEvent>()
-      for (const d of dropsUpToWeek) {
-        latestDropByPlayer.set(d.playerId, d)
-      }
-
-      for (const [droppedPlayerId, dropEvent] of latestDropByPlayer.entries()) {
-        if (dropEvent.rosterId !== rId) continue
-        // Only evaluate drops within a realistic 4-week window
-        if (week - dropEvent.dropWeek > 4) continue
-        // Skip if player is back on this team's roster in `week`
-        if (allPlayers.includes(droppedPlayerId)) continue
-
-        // Get dropped player's points in `week`
-        let dropPlayerPts: number | null = null
-        const withDropped = matchups.find(
-          (m) => m.players_points && m.players_points[droppedPlayerId] !== undefined,
-        )
-        if (withDropped) {
-          dropPlayerPts = withDropped.players_points![droppedPlayerId]
-        } else if (weeklyStats?.[week - 1]?.[droppedPlayerId]) {
-          const st = weeklyStats[week - 1][droppedPlayerId]
-          dropPlayerPts = Number(st.pts_ppr ?? st.pts_half_ppr ?? st.pts_std ?? 0)
-        }
-        if (dropPlayerPts === null || dropPlayerPts <= 0) continue
-
-        const dropProj = getPlayerProj(projWeek, droppedPlayerId)
-        // Dropped player must have had a startable projection in `week` (>= 7.5 pts)
-        if (dropProj !== null && dropProj < 7.5) continue
-
-        const dropPositions = getPlayerPositions(playersMap, droppedPlayerId)
-        const eligibleStarterIndices: number[] = []
-        let minEligibleStarterProj = Infinity
-
-        for (let sIdx = 0; sIdx < starters.length; sIdx++) {
-          const slotType = starterSlots[sIdx] || 'FLEX'
-          if (!isSlotEligible(slotType, dropPositions, dropProj)) continue
-          eligibleStarterIndices.push(sIdx)
-          const sProj = getPlayerProj(projWeek, starters[sIdx])
-          if (sProj !== null && sProj < minEligibleStarterProj) {
-            minEligibleStarterProj = sProj
-          }
-        }
-
-        let bestDropChoice: WrongChoice | null = null
-        for (const sIdx of eligibleStarterIndices) {
-          const sProj = getPlayerProj(projWeek, starters[sIdx])
-          if (dropProj !== null && sProj !== null) {
-            if (sProj - dropProj > 2.5) continue
-            if (Number.isFinite(minEligibleStarterProj) && sProj > minEligibleStarterProj + 2.0) {
-              continue
+          let bestBenchChoice: WrongChoice | null = null
+          for (const sIdx of eligibleStarterIndices) {
+            const sProj = getPlayerProj(projWeek, starters[sIdx])
+            if (benchProj !== null && sProj !== null) {
+              if (sProj - benchProj > 2.8) continue
+              if (
+                Number.isFinite(minEligibleStarterProj) &&
+                sProj > minEligibleStarterProj + 2.0
+              ) {
+                continue
+              }
+            }
+            const choice = evaluateCandidate(sIdx, benchId, benchPts, benchProj, 'bench')
+            if (
+              choice &&
+              (!bestBenchChoice ||
+                choice.winsGained > bestBenchChoice.winsGained ||
+                (choice.winsGained === bestBenchChoice.winsGained &&
+                  choice.pointsGained > bestBenchChoice.pointsGained))
+            ) {
+              bestBenchChoice = choice
             }
           }
-          const choice = evaluateCandidate(
-            sIdx,
-            droppedPlayerId,
-            dropPlayerPts,
-            dropProj,
-            'drop',
-            dropEvent.dropWeek,
+          if (bestBenchChoice) {
+            weekChoices.push(bestBenchChoice)
+          }
+        }
+      } else {
+        const dropsUpToWeek = allDropEvents.filter((d) => d.dropWeek <= week)
+        const latestDropByPlayer = new Map<string, DropEvent>()
+        for (const d of dropsUpToWeek) {
+          latestDropByPlayer.set(d.playerId, d)
+        }
+
+        for (const [droppedPlayerId, dropEvent] of latestDropByPlayer.entries()) {
+          if (dropEvent.rosterId !== rId) continue
+          if (week - dropEvent.dropWeek > 4) continue
+          if (allPlayers.includes(droppedPlayerId)) continue
+
+          let dropPlayerPts: number | null = null
+          const withDropped = matchups.find(
+            (m) => m.players_points && m.players_points[droppedPlayerId] !== undefined,
           )
-          if (
-            choice &&
-            (!bestDropChoice ||
-              choice.winsGained > bestDropChoice.winsGained ||
-              (choice.winsGained === bestDropChoice.winsGained &&
-                choice.pointsGained > bestDropChoice.pointsGained))
-          ) {
-            bestDropChoice = choice
+          if (withDropped) {
+            dropPlayerPts = withDropped.players_points![droppedPlayerId]
+          } else if (weeklyStats?.[week - 1]?.[droppedPlayerId]) {
+            const st = weeklyStats[week - 1][droppedPlayerId]
+            dropPlayerPts = Number(st.pts_ppr ?? st.pts_half_ppr ?? st.pts_std ?? 0)
           }
-        }
-        if (bestDropChoice) {
-          weekChoices.push(bestDropChoice)
+          if (dropPlayerPts === null || dropPlayerPts <= 0) continue
+
+          const dropProj = getPlayerProj(projWeek, droppedPlayerId)
+          if (dropProj !== null && dropProj < 7.5) continue
+
+          const dropPositions = getPlayerPositions(playersMap, droppedPlayerId)
+          const eligibleStarterIndices: number[] = []
+          let minEligibleStarterProj = Infinity
+
+          for (let sIdx = 0; sIdx < starters.length; sIdx++) {
+            const slotType = starterSlots[sIdx] || 'FLEX'
+            if (!isSlotEligible(slotType, dropPositions, dropProj)) continue
+            eligibleStarterIndices.push(sIdx)
+            const sProj = getPlayerProj(projWeek, starters[sIdx])
+            if (sProj !== null && sProj < minEligibleStarterProj) {
+              minEligibleStarterProj = sProj
+            }
+          }
+
+          let bestDropChoice: WrongChoice | null = null
+          for (const sIdx of eligibleStarterIndices) {
+            const sProj = getPlayerProj(projWeek, starters[sIdx])
+            if (dropProj !== null && sProj !== null) {
+              if (sProj - dropProj > 2.5) continue
+              if (
+                Number.isFinite(minEligibleStarterProj) &&
+                sProj > minEligibleStarterProj + 2.0
+              ) {
+                continue
+              }
+            }
+            const choice = evaluateCandidate(
+              sIdx,
+              droppedPlayerId,
+              dropPlayerPts,
+              dropProj,
+              'drop',
+              dropEvent.dropWeek,
+            )
+            if (
+              choice &&
+              (!bestDropChoice ||
+                choice.winsGained > bestDropChoice.winsGained ||
+                (choice.winsGained === bestDropChoice.winsGained &&
+                  choice.pointsGained > bestDropChoice.pointsGained))
+            ) {
+              bestDropChoice = choice
+            }
+          }
+          if (bestDropChoice) {
+            weekChoices.push(bestDropChoice)
+          }
         }
       }
 
@@ -597,21 +590,16 @@ export function computeLineupBlunders(
         weekChoices.sort(
           (a, b) => b.winsGained - a.winsGained || b.pointsGained - a.pointsGained,
         )
-        // Keep the top blunder for this week so a single game's win isn't double-counted
         candidateBlunders.push(weekChoices[0])
       }
     }
 
-    // Rank across all weeks: prioritize winsGained, then pointsGained
     candidateBlunders.sort(
       (a, b) => b.winsGained - a.winsGained || b.pointsGained - a.pointsGained,
     )
 
-    // Up to 5 blunders per team
     const topChoices = candidateBlunders.slice(0, 5)
     const totalWinsGained = topChoices.reduce((sum, c) => sum + c.winsGained, 0)
-    const benchBlundersCount = topChoices.filter((c) => c.blunderType === 'bench').length
-    const dropBlundersCount = topChoices.filter((c) => c.blunderType === 'drop').length
     const claimerWinsCostTotal = topChoices.reduce(
       (sum, c) => sum + (c.claimerImpact?.winsLost ?? 0),
       0,
@@ -632,8 +620,6 @@ export function computeLineupBlunders(
       potentialWins: actualWins + totalWinsGained,
       potentialLosses: Math.max(0, actualLosses - totalWinsGained),
       totalWinsGained,
-      benchBlundersCount,
-      dropBlundersCount,
       claimerWinsCostTotal,
       wrongChoices: topChoices,
     })
