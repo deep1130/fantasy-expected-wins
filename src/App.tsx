@@ -50,8 +50,6 @@ function getInitialLeagueId(): string {
     if (fromQuery && fromQuery.trim()) return fromQuery.trim()
     const fromHash = window.location.hash.replace(/^#\/?/, '').trim()
     if (fromHash && /^\d+$/.test(fromHash)) return fromHash
-    const saved = localStorage.getItem('last_expected_wins_league_id')
-    if (saved && saved.trim()) return saved.trim()
   }
   return ''
 }
@@ -88,7 +86,6 @@ export default function App() {
       setData(nextData)
       setLastUpdated(Date.now())
       if (typeof window !== 'undefined') {
-        localStorage.setItem('last_expected_wins_league_id', activeId)
         const url = new URL(window.location.href)
         url.searchParams.set('league', activeId)
         window.history.replaceState({}, '', url.toString())
@@ -356,9 +353,9 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <a href="/" className="brand" title="Fantasy Expected Wins">
+        <a href="./" className="brand" title="Expected Wins">
           <span className="brand-mark"><Scale size={16} /></span>
-          <span>xWINS <span className="brand-light">· EXPECTED WINS</span></span>
+          <span>EXPECTED<span className="brand-light">WINS</span></span>
         </a>
         <div className="topbar-right">
           <span className="season-label">
@@ -372,14 +369,13 @@ export default function App() {
       <section className="intro">
         <div>
           <p className="eyebrow">
-            FANTASY SCHEDULE LUCK <span>·</span> {analysis ? analysis.leagueName.toUpperCase() : 'SLEEPER ANALYTICS'}
+            SCHEDULE LUCK INTELLIGENCE <span>·</span> {analysis ? analysis.leagueName.toUpperCase() : 'SLEEPER FANTASY'}
           </p>
           <h1>
-            Expected Wins &amp; <em>Schedule Luck</em>
+            Schedule luck, <em>decoded.</em>
           </h1>
           <p className="intro-copy">
-            Head-to-head records are heavily warped by who you happen to play each week.
-            Expected wins calculates what your true win record should be based on your weekly scoring rank across the entire league.
+            Compare true scoring performance against actual head-to-head records to reveal who got lucky, who got robbed, and where you'd stand on any rival's schedule.
           </p>
         </div>
 
@@ -539,15 +535,15 @@ export default function App() {
           <div>
             <p className="eyebrow">
               {view === 'standings' && 'OVERALL STANDINGS'}
-              {view === 'weekly' && `WEEK ${selectedWeek} MATCHUPS & RANKS`}
-              {view === 'matrix' && 'SCHEDULE MATRIX (WHAT IF?)'}
-              {view === 'superlatives' && 'ROBBERIES & ESCAPES'}
+              {view === 'weekly' && `WEEK ${selectedWeek} BREAKDOWN`}
+              {view === 'matrix' && 'SCHEDULE SIMULATION'}
+              {view === 'superlatives' && 'SUPERLATIVES'}
               <span>·</span> {analysis ? `${analysis.totalTeams} TEAMS` : 'EXPECTED WINS'}
             </p>
             <h2>
-              {view === 'standings' && 'True Expected Standings'}
-              {view === 'weekly' && `Week ${selectedWeek} Scoring & Win Shares`}
-              {view === 'matrix' && 'Opponent Schedule Comparison Matrix'}
+              {view === 'standings' && 'Expected Standings & Schedule Luck'}
+              {view === 'weekly' && `Week ${selectedWeek} Matchup Outcomes & Win Shares`}
+              {view === 'matrix' && 'What-If Schedule Simulation Matrix'}
               {view === 'superlatives' && 'Worst Bad Beats & Lucky Escapes'}
             </h2>
           </div>
@@ -597,7 +593,8 @@ export default function App() {
                 onClick={() => setView('weekly')}
               >
                 <Calendar size={12} />
-                <span>Weekly</span>
+                <span className="tab-label-full">Weekly Breakdown</span>
+                <span className="tab-label-short">Weekly</span>
               </button>
               <button
                 type="button"
@@ -614,7 +611,8 @@ export default function App() {
                 onClick={() => setView('superlatives')}
               >
                 <Award size={12} />
-                <span>Bad Beats</span>
+                <span className="tab-label-full">Bad Beats &amp; Escapes</span>
+                <span className="tab-label-short">Bad Beats</span>
               </button>
             </div>
           </div>
@@ -1302,7 +1300,7 @@ export default function App() {
                   onClick={() => setShowRawMatrix(true)}
                 >
                   <Grid3x3 size={13} />
-                  <span>Full 12×12 Matrix Grid</span>
+                  <span>Full Grid ({totalTeams}×{totalTeams})</span>
                 </button>
               </div>
 
@@ -1385,21 +1383,21 @@ export default function App() {
                       <span className="chip-sub">{formatPct(activeMatrixTeam.actualWinPct)}</span>
                     </div>
                     <div className="m-summary-chip highlight">
-                      <span className="chip-tag">BEST SCHEDULE</span>
-                      <strong className="accent">
-                        {matrixComparisons[0]?.ownerTeam.teamName.slice(0, 11)}
+                      <span className="chip-tag">EASIEST SCHEDULE</span>
+                      <strong className="accent" title={matrixComparisons[0]?.ownerTeam.teamName}>
+                        {matrixComparisons[0]?.ownerTeam.teamName}
                       </strong>
                       <span className="chip-sub">
-                        {matrixComparisons[0]?.hypotheticalWins}–{matrixComparisons[0]?.hypotheticalLosses} ({formatPct(matrixComparisons[0]?.winPct ?? 0)})
+                        {formatDec(matrixComparisons[0]?.hypotheticalWins, 0)}–{formatDec(matrixComparisons[0]?.hypotheticalLosses, 0)} ({formatPct(matrixComparisons[0]?.winPct ?? 0)})
                       </span>
                     </div>
                     <div className="m-summary-chip">
-                      <span className="chip-tag">TOUGHEST</span>
-                      <strong>
-                        {matrixComparisons[matrixComparisons.length - 1]?.ownerTeam.teamName.slice(0, 11)}
+                      <span className="chip-tag">TOUGHEST SCHEDULE</span>
+                      <strong title={matrixComparisons[matrixComparisons.length - 1]?.ownerTeam.teamName}>
+                        {matrixComparisons[matrixComparisons.length - 1]?.ownerTeam.teamName}
                       </strong>
                       <span className="chip-sub">
-                        {matrixComparisons[matrixComparisons.length - 1]?.hypotheticalWins}–{matrixComparisons[matrixComparisons.length - 1]?.hypotheticalLosses}
+                        {formatDec(matrixComparisons[matrixComparisons.length - 1]?.hypotheticalWins, 0)}–{formatDec(matrixComparisons[matrixComparisons.length - 1]?.hypotheticalLosses, 0)}
                       </span>
                     </div>
                   </div>
@@ -1414,11 +1412,15 @@ export default function App() {
                         >
                           <div className="m-sim-card-left">
                             <span className="m-sim-title">
-                              {c.isOwn ? 'Real Schedule (Actual Opponents)' : `On ${c.ownerTeam.teamName}'s Schedule`}
+                              {c.isOwn ? (
+                                'Real Schedule (Their Actual Opponents)'
+                              ) : (
+                                <>On <strong>{c.ownerTeam.teamName}</strong>’s Schedule</>
+                              )}
                             </span>
                             <span className="m-sim-desc">
                               {c.isOwn
-                                ? 'Their actual opponents faced'
+                                ? 'Their official regular season record'
                                 : c.deltaFromOwn === 0
                                 ? 'Identical record'
                                 : `${deltaSign}${formatDec(c.deltaFromOwn, 1)} wins vs real schedule`}
