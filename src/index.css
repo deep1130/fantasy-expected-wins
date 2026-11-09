@@ -1,0 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+:root {
+  color-scheme: dark;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #eceef2;
+  background: #0a0b0d;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --bg: #0a0b0d;
+  --surface: #121418;
+  --surface-raised: #191c22;
+  --surface-subtle: #15181d;
+  --ink: #f2f4f7;
+  --ink-secondary: #c9ced6;
+  --muted: #8b929e;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-subtle: rgba(255, 255, 255, 0.06);
+  --accent: #60a5fa;
+  --accent-text: #93c5fd;
+  --accent-soft: rgba(96, 165, 250, 0.10);
+  --accent-border: rgba(96, 165, 250, 0.26);
+  --lucky: #10b981;
+  --lucky-text: #34d399;
+  --lucky-soft: rgba(16, 185, 129, 0.12);
+  --lucky-border: rgba(16, 185, 129, 0.28);
+  --unlucky: #ef4444;
+  --unlucky-text: #f87171;
+  --unlucky-soft: rgba(239, 68, 68, 0.12);
+  --unlucky-border: rgba(239, 68, 68, 0.28);
+  --neutral-soft: rgba(255, 255, 255, 0.06);
+  --control: #272b33;
+  --control-hover: #323741;
+  --live: #22c55e;
+  --mono: 'DM Mono', monospace;
+  --display: 'Space Grotesk', sans-serif;
+}
+
+* { box-sizing: border-box; }
+html {
+  min-width: 320px;
+  background: var(--bg);
+  overflow-x: hidden;
+  width: 100%;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  color: var(--ink);
+  background: var(--bg);
+  overflow-x: hidden;
+  width: 100%;
+}
+button, input { font: inherit; }
+button { color: inherit; }
+a { color: inherit; }
+#root { min-height: 100vh; min-height: 100dvh; }
+::selection { color: #0a0b0d; background: #93c5fd; }
