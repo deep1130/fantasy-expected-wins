@@ -385,10 +385,23 @@ export function computeLineupBlunders(
         if (h2hFlipped || medianFlipped) {
           const winsGained = (h2hFlipped ? 1 : 0) + (medianFlipped ? 1 : 0)
 
-          // Check who claimed this dropped player
-          const claims = claimedByMap.get(drop.playerId) || []
-          const activeClaim = claims.find((c) => c.claimWeek <= week && c.rosterId !== rId)
-          const claimedByTeamName = activeClaim ? getTeamName(activeClaim.rosterId) : null
+          // Check who rostered or claimed this dropped player in this week
+          const holdingMatchup = matchups.find(
+            (m) => m.roster_id !== rId && m.players && m.players.includes(drop.playerId),
+          )
+          let claimedByTeamName: string | null = null
+          if (holdingMatchup) {
+            claimedByTeamName = getTeamName(holdingMatchup.roster_id)
+          } else {
+            // Check the latest claim on or after the drop week
+            const claimsAfterDrop = (claimedByMap.get(drop.playerId) || []).filter(
+              (c) => c.claimWeek >= drop.dropWeek && c.claimWeek <= week && c.rosterId !== rId,
+            )
+            if (claimsAfterDrop.length > 0) {
+              const latestClaim = claimsAfterDrop[claimsAfterDrop.length - 1]
+              claimedByTeamName = getTeamName(latestClaim.rosterId)
+            }
+          }
 
           weekCandidateSwaps.push({
             blunderType: 'drop',
