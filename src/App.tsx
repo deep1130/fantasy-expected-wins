@@ -705,7 +705,6 @@ export default function App() {
                             <span className="team-title">{team.teamName}</span>
                             <span className="team-sub">
                               {team.user?.display_name ?? `Team ${team.rosterId}`}
-                              {hasMedian ? ` · Med: ${formatDec(team.medianActualWins, 0)}-${formatDec(team.medianActualLosses, 0)}` : ''}
                             </span>
                           </div>
                         </div>
@@ -726,7 +725,11 @@ export default function App() {
                             {team.actualWins} – {team.actualLosses}
                             {team.actualTies > 0 ? ` – ${team.actualTies}` : ''}
                           </strong>
-                          <span className="stat-sub">{formatPct(team.actualWinPct)}</span>
+                          <span className="stat-sub">
+                            {hasMedian
+                              ? `${team.h2hActualWins}-${team.h2hActualLosses} H2H · ${team.medianActualWins}-${team.medianActualLosses} Median`
+                              : formatPct(team.actualWinPct)}
+                          </span>
                         </div>
                       </td>
 
@@ -875,7 +878,6 @@ export default function App() {
                         <span className="team-title">{team.teamName}</span>
                         <span className="team-sub">
                           {team.user?.display_name ?? `Team ${team.rosterId}`}
-                          {hasMedian ? ` · Med: ${formatDec(team.medianActualWins, 0)}-${formatDec(team.medianActualLosses, 0)}` : ''}
                         </span>
                       </div>
                     </div>
@@ -890,6 +892,26 @@ export default function App() {
                       )}
                       <strong>{luckFormatted} W</strong>
                     </span>
+                  </div>
+
+                  {/* Record Splits (Head to Head & Median) */}
+                  <div className="m-card-records-strip">
+                    <div className="m-record-chip">
+                      <span className="m-chip-lbl">Head to Head:</span>
+                      <span className="m-chip-val">{team.h2hActualWins}–{team.h2hActualLosses}</span>
+                    </div>
+                    {hasMedian && (
+                      <div className="m-record-chip">
+                        <span className="m-chip-lbl">Median:</span>
+                        <span className="m-chip-val">{team.medianActualWins}–{team.medianActualLosses}</span>
+                      </div>
+                    )}
+                    {hasMedian && (
+                      <div className="m-record-chip m-chip-total">
+                        <span className="m-chip-lbl">Total:</span>
+                        <span className="m-chip-val">{team.actualWins}–{team.actualLosses}</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="m-card-metrics-grid">
@@ -907,7 +929,9 @@ export default function App() {
                         {team.actualWins}–{team.actualLosses}
                         {team.actualTies > 0 ? `–${team.actualTies}` : ''}
                       </strong>
-                      <span className="m-metric-sub">{formatPct(team.actualWinPct)} act</span>
+                      <span className="m-metric-sub">
+                        {hasMedian ? 'H2H + Median' : `${formatPct(team.actualWinPct)} act`}
+                      </span>
                     </div>
 
                     <div className="m-metric-cell">
