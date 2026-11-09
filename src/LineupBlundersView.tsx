@@ -6,6 +6,7 @@ import {
   Flame,
   TrendingDown,
   Trophy,
+  UserCheck,
   UserMinus,
   Users,
 } from 'lucide-react'
@@ -207,7 +208,7 @@ export function LineupBlundersView({
                     <td className="td-blunder-desc">
                       {topBlunder ? (
                         <span>
-                          {topBlunder.blunderType === 'drop' ? '💔 Cut ' : '🪑 Sat '}
+                          {topBlunder.blunderType === 'drop' ? 'Cut ' : 'Benched '}
                           <strong>{topBlunder.subName}</strong> for {topBlunder.starterName} (W{topBlunder.week}, +{topBlunder.winsGained}W)
                         </span>
                       ) : (
@@ -260,14 +261,14 @@ export function LineupBlundersView({
               className={`blunder-filter-btn ${filterType === 'bench' ? 'active' : ''}`}
               onClick={() => setFilterType('bench')}
             >
-              🪑 Bench ({selectedTeam?.wrongChoices.filter((c) => c.blunderType === 'bench').length ?? 0})
+              Bench ({selectedTeam?.wrongChoices.filter((c) => c.blunderType === 'bench').length ?? 0})
             </button>
             <button
               type="button"
               className={`blunder-filter-btn ${filterType === 'drop' ? 'active' : ''}`}
               onClick={() => setFilterType('drop')}
             >
-              💔 Drops ({selectedTeam?.wrongChoices.filter((c) => c.blunderType === 'drop').length ?? 0})
+              Drops ({selectedTeam?.wrongChoices.filter((c) => c.blunderType === 'drop').length ?? 0})
             </button>
           </div>
         </div>
@@ -307,7 +308,7 @@ export function LineupBlundersView({
             {/* List of Blunders */}
             {filteredChoices.length === 0 ? (
               <div className="blunder-empty-state">
-                🎯 Clean Execution — No {filterType !== 'all' ? filterType : ''} decisions would have flipped any loss into a win for this franchise.
+                Clean Execution — No {filterType !== 'all' ? filterType : ''} decisions would have flipped any loss into a win for this franchise.
               </div>
             ) : (
               <div className="blunder-choices-list">
@@ -400,8 +401,9 @@ export function LineupBlundersView({
                       )}
                       {choice.blunderType === 'drop' && choice.claimedByTeamName && (
                         <div className="blunder-victim-item" style={{ color: '#c084fc', marginTop: '2px' }}>
+                          <UserCheck size={13} color="#c084fc" />
                           <span>
-                            🎁 Claimed off waivers by: <strong>{choice.claimedByTeamName}</strong>
+                            Claimed on waivers by: <strong>{choice.claimedByTeamName}</strong>
                           </span>
                         </div>
                       )}
