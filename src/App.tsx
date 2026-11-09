@@ -24,9 +24,11 @@ import {
   type TeamSeasonSummary,
 } from './expectedWins'
 import { loadLeagueData, type LeagueData } from './sleeper'
+import { fetchSleeperPlayers, type SleeperPlayer } from './sleeperPlayers'
+import { LineupBlundersView } from './LineupBlundersView'
 import './App.css'
 
-type View = 'standings' | 'weekly' | 'matrix' | 'superlatives'
+type View = 'standings' | 'weekly' | 'matrix' | 'superlatives' | 'blunders'
 type SortField =
   | 'expectedWins'
   | 'actualWins'
@@ -54,14 +56,39 @@ function getInitialLeagueId(): string {
   return ''
 }
 
+function getInitialView(): View {
+  if (typeof window !== 'undefined') {
+    const fromQuery =
+      new URLSearchParams(window.location.search).get('view') ||
+      new URLSearchParams(window.location.search).get('tab')
+    if (
+      fromQuery &&
+      ['standings', 'weekly', 'matrix', 'superlatives', 'blunders'].includes(fromQuery)
+    ) {
+      return fromQuery as View
+    }
+  }
+  return 'standings'
+}
+
 export default function App() {
   const initialId = useMemo(getInitialLeagueId, [])
+  const initialView = useMemo(getInitialView, [])
   const [leagueId, setLeagueId] = useState(initialId)
   const [data, setData] = useState<LeagueData | null>(null)
   const [busy, setBusy] = useState(Boolean(initialId))
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<View>('standings')
+  const [view, setView] = useState<View>(initialView)
+
+  const changeView = (nextView: View) => {
+    setView(nextView)
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      url.searchParams.set('view', nextView)
+      window.history.replaceState({}, '', url.toString())
+    }
+  }
   const [selectedWeek, setSelectedWeek] = useState<number>(1)
   const [sortBy, setSortBy] = useState<SortField>('expectedWins')
   const [sortAsc, setSortAsc] = useState<boolean>(false)
@@ -70,6 +97,8 @@ export default function App() {
   const [matrixTeamId, setMatrixTeamId] = useState<number | null>(null)
   const [showRawMatrix, setShowRawMatrix] = useState<boolean>(false)
   const [includeLiveWeek, setIncludeLiveWeek] = useState<boolean>(false)
+  const [playersMap, setPlayersMap] = useState<Record<string, SleeperPlayer>>({})
+  const [isLoadingPlayers, setIsLoadingPlayers] = useState<boolean>(false)
 
   async function refresh(targetId?: string) {
     const activeId = (targetId ?? leagueId).trim()
@@ -121,6 +150,17 @@ export default function App() {
       setSelectedWeek(analysis.weeksAvailable[analysis.weeksAvailable.length - 1])
     }
   }, [analysis])
+
+  // Pre-load NFL player data in background when league data arrives or when switching to blunders
+  useEffect(() => {
+    if ((data || view === 'blunders') && Object.keys(playersMap).length === 0 && !isLoadingPlayers) {
+      setIsLoadingPlayers(true)
+      fetchSleeperPlayers()
+        .then((map) => setPlayersMap(map))
+        .catch((err) => console.warn('Could not load NFL players:', err))
+        .finally(() => setIsLoadingPlayers(false))
+    }
+  }, [data, view, playersMap, isLoadingPlayers])
 
   async function handleShare() {
     const activeId = leagueId.trim()
@@ -538,6 +578,7 @@ export default function App() {
               {view === 'weekly' && `WEEK ${selectedWeek} BREAKDOWN`}
               {view === 'matrix' && 'SCHEDULE SIMULATION'}
               {view === 'superlatives' && 'SUPERLATIVES'}
+              {view === 'blunders' && 'LINEUP REGRET & WRONG CHOICES'}
               <span>·</span> {analysis ? `${analysis.totalTeams} TEAMS` : 'EXPECTED WINS'}
             </p>
             <h2>
@@ -545,6 +586,7 @@ export default function App() {
               {view === 'weekly' && `Week ${selectedWeek} Matchup Outcomes & Win Shares`}
               {view === 'matrix' && 'What-If Schedule Simulation Matrix'}
               {view === 'superlatives' && 'Worst Bad Beats & Lucky Escapes'}
+              {view === 'blunders' && 'Biggest Lineup Blunders & Flipped Wins'}
             </h2>
           </div>
 
@@ -582,7 +624,7 @@ export default function App() {
               <button
                 type="button"
                 className={view === 'standings' ? 'selected' : ''}
-                onClick={() => setView('standings')}
+                onClick={() => changeView('standings')}
               >
                 <Trophy size={12} />
                 <span>Standings</span>
@@ -590,7 +632,7 @@ export default function App() {
               <button
                 type="button"
                 className={view === 'weekly' ? 'selected' : ''}
-                onClick={() => setView('weekly')}
+                onClick={() => changeView('weekly')}
               >
                 <Calendar size={12} />
                 <span className="tab-label-full">Weekly Breakdown</span>
@@ -599,7 +641,7 @@ export default function App() {
               <button
                 type="button"
                 className={view === 'matrix' ? 'selected' : ''}
-                onClick={() => setView('matrix')}
+                onClick={() => changeView('matrix')}
               >
                 <Grid3x3 size={12} />
                 <span className="tab-label-full">Schedule Matrix</span>
@@ -608,11 +650,20 @@ export default function App() {
               <button
                 type="button"
                 className={view === 'superlatives' ? 'selected' : ''}
-                onClick={() => setView('superlatives')}
+                onClick={() => changeView('superlatives')}
               >
                 <Award size={12} />
                 <span className="tab-label-full">Bad Beats &amp; Escapes</span>
                 <span className="tab-label-short">Bad Beats</span>
+              </button>
+              <button
+                type="button"
+                className={view === 'blunders' ? 'selected' : ''}
+                onClick={() => changeView('blunders')}
+              >
+                <Flame size={12} />
+                <span className="tab-label-full">Lineup Blunders</span>
+                <span className="tab-label-short">Blunders</span>
               </button>
             </div>
           </div>
@@ -1529,6 +1580,15 @@ export default function App() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* VIEW 5: LINEUP BLUNDERS / WRONG CHOICES */}
+        {view === 'blunders' && data && (
+          <LineupBlundersView
+            leagueData={data}
+            playersMap={playersMap}
+            isLoadingPlayers={isLoadingPlayers}
+          />
         )}
 
         <footer className="table-footer">
