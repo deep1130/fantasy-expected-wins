@@ -488,6 +488,7 @@ export function computeLineupBlunders(
             if (benchProj !== null && sProj !== null) {
               if (sProj - benchProj > 2.8) continue
               if (
+                benchProj < sProj &&
                 Number.isFinite(minEligibleStarterProj) &&
                 sProj > minEligibleStarterProj + 2.0
               ) {
@@ -556,6 +557,7 @@ export function computeLineupBlunders(
             if (dropProj !== null && sProj !== null) {
               if (sProj - dropProj > 2.5) continue
               if (
+                dropProj < sProj &&
                 Number.isFinite(minEligibleStarterProj) &&
                 sProj > minEligibleStarterProj + 2.0
               ) {
