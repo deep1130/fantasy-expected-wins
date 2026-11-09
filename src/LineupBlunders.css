@@ -93,6 +93,64 @@
   border-color: var(--accent);
 }
 
+.blunder-type-filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.blunder-filter-btn {
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.blunder-filter-btn:hover {
+  color: var(--ink);
+}
+
+.blunder-filter-btn.active {
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.blunder-type-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--mono);
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.blunder-type-pill.drop {
+  background: rgba(192, 132, 252, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(192, 132, 252, 0.3);
+}
+
+.blunder-type-pill.bench {
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
 .blunders-teams-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
@@ -275,6 +333,10 @@
   border-left: 3px solid #10b981;
 }
 
+.blunder-player-box.dropped {
+  border-left: 3px solid #c084fc;
+}
+
 .blunder-player-tag {
   font-size: 10px;
   font-weight: 700;
@@ -290,6 +352,10 @@
 
 .bench .blunder-player-tag {
   color: #34d399;
+}
+
+.dropped .blunder-player-tag {
+  color: #c084fc;
 }
 
 .blunder-player-name {

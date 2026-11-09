@@ -25,6 +25,11 @@ import {
 } from './expectedWins'
 import { loadLeagueData, type LeagueData } from './sleeper'
 import { fetchSleeperPlayers, type SleeperPlayer } from './sleeperPlayers'
+import {
+  fetchLeagueTransactions,
+  fetchAllWeeklyStats,
+  type SleeperTransaction,
+} from './sleeperTransactions'
 import { LineupBlundersView } from './LineupBlundersView'
 import './App.css'
 
@@ -99,6 +104,8 @@ export default function App() {
   const [includeLiveWeek, setIncludeLiveWeek] = useState<boolean>(false)
   const [playersMap, setPlayersMap] = useState<Record<string, SleeperPlayer>>({})
   const [isLoadingPlayers, setIsLoadingPlayers] = useState<boolean>(false)
+  const [transactions, setTransactions] = useState<SleeperTransaction[][]>([])
+  const [weeklyStats, setWeeklyStats] = useState<Record<string, any>[]>([])
 
   async function refresh(targetId?: string) {
     const activeId = (targetId ?? leagueId).trim()
@@ -151,7 +158,7 @@ export default function App() {
     }
   }, [analysis])
 
-  // Pre-load NFL player data in background when league data arrives or when switching to blunders
+  // Pre-load NFL player data, transactions & weekly stats in background
   useEffect(() => {
     if ((data || view === 'blunders') && Object.keys(playersMap).length === 0 && !isLoadingPlayers) {
       setIsLoadingPlayers(true)
@@ -160,7 +167,17 @@ export default function App() {
         .catch((err) => console.warn('Could not load NFL players:', err))
         .finally(() => setIsLoadingPlayers(false))
     }
-  }, [data, view, playersMap, isLoadingPlayers])
+
+    if (data && transactions.length === 0) {
+      fetchLeagueTransactions(data.league.league_id, data.regularSeasonWeeks)
+        .then((txs) => setTransactions(txs))
+        .catch((err) => console.warn('Could not load transactions:', err))
+
+      fetchAllWeeklyStats(data.league.season, data.regularSeasonWeeks)
+        .then((stats) => setWeeklyStats(stats))
+        .catch((err) => console.warn('Could not load weekly stats:', err))
+    }
+  }, [data, view, playersMap, isLoadingPlayers, transactions])
 
   async function handleShare() {
     const activeId = leagueId.trim()
@@ -1588,6 +1605,8 @@ export default function App() {
             leagueData={data}
             playersMap={playersMap}
             isLoadingPlayers={isLoadingPlayers}
+            transactions={transactions}
+            weeklyStats={weeklyStats}
           />
         )}
 

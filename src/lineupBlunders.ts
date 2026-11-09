@@ -1,18 +1,22 @@
 import type { LeagueData, SleeperMatchup } from './sleeper'
 import type { SleeperPlayer } from './sleeperPlayers'
+import type { SleeperTransaction } from './sleeperTransactions'
+
+export type BlunderType = 'bench' | 'drop'
 
 export interface WrongChoice {
+  blunderType: BlunderType
   week: number
   starterId: string
   starterName: string
   starterPosition: string
   starterPoints: number
   starterTeam?: string | null
-  benchId: string
-  benchName: string
-  benchPosition: string
-  benchPoints: number
-  benchTeam?: string | null
+  subId: string
+  subName: string
+  subPosition: string
+  subPoints: number
+  subTeam?: string | null
   pointsGained: number
   newTotalPoints: number
   originalPoints: number
@@ -24,6 +28,9 @@ export interface WrongChoice {
   oppPoints: number
   whoLosesH2H: string | null
   whoLosesMedian: string | null
+  // For drop regret: details about who claimed the dropped player
+  claimedByTeamName?: string | null
+  dropWeek?: number
 }
 
 export interface TeamBlunderSummary {
@@ -67,10 +74,11 @@ function isSlotEligible(slotType: string, playerPositions: string[]): boolean {
 export function computeLineupBlunders(
   leagueData: LeagueData,
   playersMap: Record<string, SleeperPlayer>,
+  transactions?: SleeperTransaction[][],
+  weeklyStats?: Record<string, any>[],
 ): TeamBlunderSummary[] {
   const { league, rosters, users, weeks, hasMedianMatch, totalTeams } = leagueData
 
-  // User Map
   const userMap = new Map(users.map((u) => [u.user_id, u]))
   const rosterMap = new Map(rosters.map((r) => [r.roster_id, r]))
 
@@ -97,7 +105,6 @@ export function computeLineupBlunders(
     return null
   }
 
-  // Determine starting slot positions from league settings
   const rawPositions = league.roster_positions || [
     'QB',
     'RB',
@@ -114,9 +121,38 @@ export function computeLineupBlunders(
   )
 
   const medianCutoff = Math.floor(totalTeams / 2)
+
+  // Track drops and adds by week
+  // droppedByRoster: rosterId -> list of { playerId, dropWeek }
+  const droppedByRoster = new Map<number, { playerId: string; dropWeek: number }[]>()
+  // claimedByMap: playerId -> { rosterId, claimWeek }[]
+  const claimedByMap = new Map<string, { rosterId: number; claimWeek: number }[]>()
+
+  if (transactions) {
+    for (let wIdx = 0; wIdx < transactions.length; wIdx++) {
+      const week = wIdx + 1
+      for (const t of transactions[wIdx] || []) {
+        if (t.status !== 'complete') continue
+        if (t.drops) {
+          for (const [pId, rId] of Object.entries(t.drops)) {
+            const numRId = Number(rId)
+            if (!droppedByRoster.has(numRId)) droppedByRoster.set(numRId, [])
+            droppedByRoster.get(numRId)!.push({ playerId: pId, dropWeek: week })
+          }
+        }
+        if (t.adds) {
+          for (const [pId, rId] of Object.entries(t.adds)) {
+            const numRId = Number(rId)
+            if (!claimedByMap.has(pId)) claimedByMap.set(pId, [])
+            claimedByMap.get(pId)!.push({ rosterId: numRId, claimWeek: week })
+          }
+        }
+      }
+    }
+  }
+
   const summaries: TeamBlunderSummary[] = []
 
-  // Iterate over each roster
   for (const roster of rosters) {
     const rId = roster.roster_id
     const teamName = getTeamName(rId)
@@ -127,16 +163,15 @@ export function computeLineupBlunders(
     const actualLosses = Number(roster.settings?.losses ?? 0)
     const actualTies = Number(roster.settings?.ties ?? 0)
 
-    const weeklyBestBlunders: WrongChoice[] = []
+    const candidateBlunders: WrongChoice[] = []
+    const dropsForThisTeam = droppedByRoster.get(rId) || []
 
-    // Check each week's matchup
     for (const [weekNumStr, feed] of Object.entries(weeks)) {
       const week = Number(weekNumStr)
       const matchups = feed.matchups || []
       const teamMatchup = matchups.find((m) => m.roster_id === rId)
       if (!teamMatchup || typeof teamMatchup.points !== 'number') continue
 
-      // Find opponent
       let oppMatchup: SleeperMatchup | undefined
       if (teamMatchup.matchup_id !== null && teamMatchup.matchup_id !== undefined) {
         oppMatchup = matchups.find(
@@ -148,13 +183,10 @@ export function computeLineupBlunders(
       const oppPoints = oppMatchup.points ?? 0
       const oppTeamName = getTeamName(oppMatchup.roster_id)
 
-      // Median ranking for current week
       const sortedByPoints = [...matchups]
         .filter((m) => typeof m.points === 'number')
         .sort((a, b) => b.points - a.points)
 
-      // Who originally won median?
-      // In 12-team, indices 0..5 are top 6. The 6th place team is sortedByPoints[medianCutoff - 1]
       const team6Original =
         hasMedianMatch && sortedByPoints.length >= medianCutoff
           ? sortedByPoints[medianCutoff - 1]
@@ -170,9 +202,9 @@ export function computeLineupBlunders(
       const bench = allPlayers.filter((pid) => !starters.includes(pid))
       const pointsMap = teamMatchup.players_points || {}
 
-      const candidateSwaps: WrongChoice[] = []
+      const weekCandidateSwaps: WrongChoice[] = []
 
-      // Test each starter vs each bench player
+      // --- 1. EVALUATE BENCH SWAPS ---
       for (let sIdx = 0; sIdx < starters.length; sIdx++) {
         const starterId = starters[sIdx]
         const slotType = starterSlots[sIdx] || 'FLEX'
@@ -192,16 +224,13 @@ export function computeLineupBlunders(
           const pointsGained = Number((benchPts - starterPts).toFixed(2))
           const newTotalPoints = Number((teamMatchup.points + pointsGained).toFixed(2))
 
-          // Evaluate H2H flip
           const newWonH2H = newTotalPoints > oppPoints
           const h2hFlipped = !originallyWonH2H && newWonH2H
 
-          // Evaluate Median flip
           let medianFlipped = false
           let whoLosesMedian: string | null = null
 
           if (hasMedianMatch && !originallyWonMedian) {
-            // New rank among other teams
             const otherTeamsAbove = sortedByPoints.filter(
               (m) => m.roster_id !== rId && m.points > newTotalPoints,
             ).length
@@ -216,18 +245,19 @@ export function computeLineupBlunders(
 
           if (h2hFlipped || medianFlipped) {
             const winsGained = (h2hFlipped ? 1 : 0) + (medianFlipped ? 1 : 0)
-            candidateSwaps.push({
+            weekCandidateSwaps.push({
+              blunderType: 'bench',
               week,
               starterId,
               starterName: starterPlayer?.full_name || `Starter (${starterId})`,
               starterPosition: starterPlayer?.position || slotType,
               starterPoints: starterPts,
               starterTeam: starterPlayer?.team || null,
-              benchId,
-              benchName: benchPlayer?.full_name || `Bench (${benchId})`,
-              benchPosition: benchPlayer?.position || slotType,
-              benchPoints: benchPts,
-              benchTeam: benchPlayer?.team || null,
+              subId: benchId,
+              subName: benchPlayer?.full_name || `Bench (${benchId})`,
+              subPosition: benchPlayer?.position || slotType,
+              subPoints: benchPts,
+              subTeam: benchPlayer?.team || null,
               pointsGained,
               newTotalPoints,
               originalPoints: teamMatchup.points,
@@ -244,20 +274,130 @@ export function computeLineupBlunders(
         }
       }
 
-      // Pick the single most impactful blunder for this week
-      if (candidateSwaps.length > 0) {
-        candidateSwaps.sort((a, b) => b.winsGained - a.winsGained || b.pointsGained - a.pointsGained)
-        weeklyBestBlunders.push(candidateSwaps[0])
+      // --- 2. EVALUATE DROP REGRETS ---
+      // Did this team drop a player in a week <= current week?
+      for (const drop of dropsForThisTeam) {
+        if (drop.dropWeek > week) continue // dropped after this week
+        // Don't evaluate if player is currently back on their roster
+        if (allPlayers.includes(drop.playerId)) continue
+
+        // Determine dropped player score in this week
+        let dropPlayerPts: number | null = null
+        const withDropped = matchups.find(
+          (m) => m.players_points && m.players_points[drop.playerId] !== undefined,
+        )
+        if (withDropped) {
+          dropPlayerPts = withDropped.players_points![drop.playerId]
+        } else if (weeklyStats && weeklyStats[week - 1]) {
+          const stats = weeklyStats[week - 1][drop.playerId]
+          if (stats) {
+            dropPlayerPts = Number(stats.pts_ppr ?? stats.pts_half_ppr ?? stats.pts_std ?? 0)
+          }
+        }
+
+        if (dropPlayerPts === null || dropPlayerPts <= 0) continue
+
+        const dropPlayer = playersMap[drop.playerId]
+        const dropPositions =
+          dropPlayer?.fantasy_positions || (dropPlayer?.position ? [dropPlayer.position] : [])
+
+        // Find the lowest-scoring starter in an eligible slot
+        let worstStarterIdx = -1
+        let lowestStarterPts = Infinity
+
+        for (let sIdx = 0; sIdx < starters.length; sIdx++) {
+          const slotType = starterSlots[sIdx] || 'FLEX'
+          if (!isSlotEligible(slotType, dropPositions)) continue
+          const sPts = pointsMap[starters[sIdx]] ?? 0
+          if (sPts < lowestStarterPts) {
+            lowestStarterPts = sPts
+            worstStarterIdx = sIdx
+          }
+        }
+
+        if (worstStarterIdx === -1 || dropPlayerPts <= lowestStarterPts) continue
+
+        const starterId = starters[worstStarterIdx]
+        const slotType = starterSlots[worstStarterIdx] || 'FLEX'
+        const starterPts = lowestStarterPts
+        const starterPlayer = playersMap[starterId]
+
+        const pointsGained = Number((dropPlayerPts - starterPts).toFixed(2))
+        const newTotalPoints = Number((teamMatchup.points + pointsGained).toFixed(2))
+
+        const newWonH2H = newTotalPoints > oppPoints
+        const h2hFlipped = !originallyWonH2H && newWonH2H
+
+        let medianFlipped = false
+        let whoLosesMedian: string | null = null
+
+        if (hasMedianMatch && !originallyWonMedian) {
+          const otherTeamsAbove = sortedByPoints.filter(
+            (m) => m.roster_id !== rId && m.points > newTotalPoints,
+          ).length
+          const newRank = otherTeamsAbove + 1
+          if (newRank <= medianCutoff) {
+            medianFlipped = true
+            if (team6Original) {
+              whoLosesMedian = getTeamName(team6Original.roster_id)
+            }
+          }
+        }
+
+        if (h2hFlipped || medianFlipped) {
+          const winsGained = (h2hFlipped ? 1 : 0) + (medianFlipped ? 1 : 0)
+
+          // Check who claimed this dropped player
+          const claims = claimedByMap.get(drop.playerId) || []
+          const activeClaim = claims.find((c) => c.claimWeek <= week && c.rosterId !== rId)
+          const claimedByTeamName = activeClaim ? getTeamName(activeClaim.rosterId) : null
+
+          weekCandidateSwaps.push({
+            blunderType: 'drop',
+            week,
+            starterId,
+            starterName: starterPlayer?.full_name || `Starter (${starterId})`,
+            starterPosition: starterPlayer?.position || slotType,
+            starterPoints: starterPts,
+            starterTeam: starterPlayer?.team || null,
+            subId: drop.playerId,
+            subName: dropPlayer?.full_name || `Dropped (${drop.playerId})`,
+            subPosition: dropPlayer?.position || slotType,
+            subPoints: dropPlayerPts,
+            subTeam: dropPlayer?.team || null,
+            pointsGained,
+            newTotalPoints,
+            originalPoints: teamMatchup.points,
+            h2hFlipped,
+            medianFlipped,
+            winsGained,
+            oppRosterId: oppMatchup.roster_id,
+            oppTeamName,
+            oppPoints,
+            whoLosesH2H: h2hFlipped ? oppTeamName : null,
+            whoLosesMedian,
+            claimedByTeamName,
+            dropWeek: drop.dropWeek,
+          })
+        }
+      }
+
+      if (weekCandidateSwaps.length > 0) {
+        weekCandidateSwaps.sort(
+          (a, b) => b.winsGained - a.winsGained || b.pointsGained - a.pointsGained,
+        )
+        // Keep top blunder for this week
+        candidateBlunders.push(weekCandidateSwaps[0])
       }
     }
 
-    // Rank blunders across weeks: biggest wins gained first, then largest point differential
-    weeklyBestBlunders.sort(
+    // Rank across all weeks
+    candidateBlunders.sort(
       (a, b) => b.winsGained - a.winsGained || b.pointsGained - a.pointsGained,
     )
 
-    // Top 3 choices per team
-    const topChoices = weeklyBestBlunders.slice(0, 3)
+    // Top 5 blunders per team
+    const topChoices = candidateBlunders.slice(0, 5)
     const totalWinsGained = topChoices.reduce((sum, c) => sum + c.winsGained, 0)
 
     summaries.push({
@@ -275,7 +415,6 @@ export function computeLineupBlunders(
     })
   }
 
-  // Sort summaries: teams with the most wins lost to blunders first
   summaries.sort(
     (a, b) =>
       b.totalWinsGained - a.totalWinsGained ||
