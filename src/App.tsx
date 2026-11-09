@@ -28,6 +28,7 @@ import { fetchSleeperPlayers, type SleeperPlayer } from './sleeperPlayers'
 import {
   fetchLeagueTransactions,
   fetchAllWeeklyStats,
+  fetchWeeklyProjections,
   type SleeperTransaction,
 } from './sleeperTransactions'
 import { LineupBlundersView } from './LineupBlundersView'
@@ -106,6 +107,7 @@ export default function App() {
   const [isLoadingPlayers, setIsLoadingPlayers] = useState<boolean>(false)
   const [transactions, setTransactions] = useState<SleeperTransaction[][]>([])
   const [weeklyStats, setWeeklyStats] = useState<Record<string, any>[]>([])
+  const [projections, setProjections] = useState<Record<string, any>[]>([])
 
   async function refresh(targetId?: string) {
     const activeId = (targetId ?? leagueId).trim()
@@ -176,6 +178,10 @@ export default function App() {
       fetchAllWeeklyStats(data.league.season, data.regularSeasonWeeks)
         .then((stats) => setWeeklyStats(stats))
         .catch((err) => console.warn('Could not load weekly stats:', err))
+
+      fetchWeeklyProjections(data.league.season, data.regularSeasonWeeks)
+        .then((projs) => setProjections(projs))
+        .catch((err) => console.warn('Could not load weekly projections:', err))
     }
   }, [data, view, playersMap, isLoadingPlayers, transactions])
 
@@ -1607,6 +1613,7 @@ export default function App() {
             isLoadingPlayers={isLoadingPlayers}
             transactions={transactions}
             weeklyStats={weeklyStats}
+            projections={projections}
           />
         )}
 

@@ -11,6 +11,7 @@ export interface SleeperTransaction {
 
 let inMemoryTxCache: Record<string, SleeperTransaction[][]> = {}
 let inMemoryStatsCache: Record<string, Record<string, any>[]> = {}
+let inMemoryProjCache: Record<string, Record<string, any>[]> = {}
 
 export async function fetchLeagueTransactions(
   leagueId: string,
@@ -61,5 +62,31 @@ export async function fetchAllWeeklyStats(
   )
 
   inMemoryStatsCache[cacheKey] = results
+  return results
+}
+
+export async function fetchWeeklyProjections(
+  season: string,
+  totalWeeks: number,
+): Promise<Record<string, any>[]> {
+  const cacheKey = `${season}_${totalWeeks}`
+  if (inMemoryProjCache[cacheKey]) {
+    return inMemoryProjCache[cacheKey]
+  }
+
+  const weekNumbers = Array.from({ length: Math.max(1, totalWeeks) }, (_, i) => i + 1)
+  const results = await Promise.all(
+    weekNumbers.map(async (week) => {
+      try {
+        const res = await fetch(`https://api.sleeper.app/v1/projections/nfl/regular/${season}/${week}`)
+        if (!res.ok) return {}
+        return (await res.json()) as Record<string, any>
+      } catch {
+        return {}
+      }
+    }),
+  )
+
+  inMemoryProjCache[cacheKey] = results
   return results
 }

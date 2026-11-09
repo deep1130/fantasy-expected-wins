@@ -11,11 +11,13 @@ export interface WrongChoice {
   starterName: string
   starterPosition: string
   starterPoints: number
+  starterProjected?: number | null
   starterTeam?: string | null
   subId: string
   subName: string
   subPosition: string
   subPoints: number
+  subProjected?: number | null
   subTeam?: string | null
   pointsGained: number
   newTotalPoints: number
@@ -71,11 +73,25 @@ function isSlotEligible(slotType: string, playerPositions: string[]): boolean {
   return upperPos.includes(upperSlot)
 }
 
+function isRealisticBlunder(
+  subProj?: number | null,
+  starterProj?: number | null,
+): boolean {
+  if (subProj == null || starterProj == null) return true
+  // Bench player must have at least 5.0 projected points (no zero-projected or deep backup dart throws)
+  if (subProj < 5.0) return false
+  // Bench player should be reasonably projected relative to starter
+  const ratio = subProj / Math.max(starterProj, 1)
+  const diff = starterProj - subProj
+  return subProj >= starterProj || diff <= 3.5 || ratio >= 0.70 || subProj >= 9.0
+}
+
 export function computeLineupBlunders(
   leagueData: LeagueData,
   playersMap: Record<string, SleeperPlayer>,
   transactions?: SleeperTransaction[][],
   weeklyStats?: Record<string, any>[],
+  projections?: Record<string, any>[],
 ): TeamBlunderSummary[] {
   const { league, rosters, users, weeks, hasMedianMatch, totalTeams } = leagueData
 
@@ -203,6 +219,7 @@ export function computeLineupBlunders(
       const pointsMap = teamMatchup.players_points || {}
 
       const weekCandidateSwaps: WrongChoice[] = []
+      const projWeek = projections && projections[week - 1] ? projections[week - 1] : null
 
       // --- 1. EVALUATE BENCH SWAPS ---
       for (let sIdx = 0; sIdx < starters.length; sIdx++) {
@@ -210,6 +227,9 @@ export function computeLineupBlunders(
         const slotType = starterSlots[sIdx] || 'FLEX'
         const starterPts = pointsMap[starterId] ?? 0
         const starterPlayer = playersMap[starterId]
+        const starterProj = projWeek && projWeek[starterId]
+          ? Number(projWeek[starterId].pts_ppr ?? projWeek[starterId].pts_half_ppr ?? projWeek[starterId].pts_std ?? 0)
+          : null
 
         for (const benchId of bench) {
           const benchPts = pointsMap[benchId] ?? 0
@@ -220,6 +240,13 @@ export function computeLineupBlunders(
             benchPlayer?.fantasy_positions || (benchPlayer?.position ? [benchPlayer.position] : [])
 
           if (!isSlotEligible(slotType, benchPositions)) continue
+
+          const benchProj = projWeek && projWeek[benchId]
+            ? Number(projWeek[benchId].pts_ppr ?? projWeek[benchId].pts_half_ppr ?? projWeek[benchId].pts_std ?? 0)
+            : null
+
+          // Realism check: do not count deep backup flukes with no viable expectation
+          if (!isRealisticBlunder(benchProj, starterProj)) continue
 
           const pointsGained = Number((benchPts - starterPts).toFixed(2))
           const newTotalPoints = Number((teamMatchup.points + pointsGained).toFixed(2))
@@ -252,11 +279,13 @@ export function computeLineupBlunders(
               starterName: starterPlayer?.full_name || `Starter (${starterId})`,
               starterPosition: starterPlayer?.position || slotType,
               starterPoints: starterPts,
+              starterProjected: starterProj,
               starterTeam: starterPlayer?.team || null,
               subId: benchId,
               subName: benchPlayer?.full_name || `Bench (${benchId})`,
               subPosition: benchPlayer?.position || slotType,
               subPoints: benchPts,
+              subProjected: benchProj,
               subTeam: benchPlayer?.team || null,
               pointsGained,
               newTotalPoints,
@@ -321,6 +350,15 @@ export function computeLineupBlunders(
         const slotType = starterSlots[worstStarterIdx] || 'FLEX'
         const starterPts = lowestStarterPts
         const starterPlayer = playersMap[starterId]
+        const starterProj = projWeek && projWeek[starterId]
+          ? Number(projWeek[starterId].pts_ppr ?? projWeek[starterId].pts_half_ppr ?? projWeek[starterId].pts_std ?? 0)
+          : null
+        const dropProj = projWeek && projWeek[drop.playerId]
+          ? Number(projWeek[drop.playerId].pts_ppr ?? projWeek[drop.playerId].pts_half_ppr ?? projWeek[drop.playerId].pts_std ?? 0)
+          : null
+
+        // Realism check
+        if (!isRealisticBlunder(dropProj, starterProj)) continue
 
         const pointsGained = Number((dropPlayerPts - starterPts).toFixed(2))
         const newTotalPoints = Number((teamMatchup.points + pointsGained).toFixed(2))
@@ -359,11 +397,13 @@ export function computeLineupBlunders(
             starterName: starterPlayer?.full_name || `Starter (${starterId})`,
             starterPosition: starterPlayer?.position || slotType,
             starterPoints: starterPts,
+            starterProjected: starterProj,
             starterTeam: starterPlayer?.team || null,
             subId: drop.playerId,
             subName: dropPlayer?.full_name || `Dropped (${drop.playerId})`,
             subPosition: dropPlayer?.position || slotType,
             subPoints: dropPlayerPts,
+            subProjected: dropProj,
             subTeam: dropPlayer?.team || null,
             pointsGained,
             newTotalPoints,
