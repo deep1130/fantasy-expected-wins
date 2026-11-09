@@ -71,6 +71,7 @@ export default function App() {
   const [copied, setCopied] = useState(false)
   const [matrixTeamId, setMatrixTeamId] = useState<number | null>(null)
   const [showRawMatrix, setShowRawMatrix] = useState<boolean>(false)
+  const [includeLiveWeek, setIncludeLiveWeek] = useState<boolean>(false)
 
   async function refresh(targetId?: string) {
     const activeId = (targetId ?? leagueId).trim()
@@ -110,12 +111,12 @@ export default function App() {
   const analysis: ExpectedWinsAnalysis | null = useMemo(() => {
     if (!data) return null
     try {
-      return computeExpectedWins(data)
+      return computeExpectedWins(data, { includeInProgress: includeLiveWeek })
     } catch (err) {
       console.error('Error computing expected wins:', err)
       return null
     }
-  }, [data])
+  }, [data, includeLiveWeek])
 
   // Update selected week when analysis loads
   useEffect(() => {
@@ -449,11 +450,17 @@ export default function App() {
         <div className="summary-item">
           <span className="summary-label">SEASON PROGRESS</span>
           <strong>
-            {analysis ? `WEEK ${analysis.completedWeeksCount} OF ${analysis.regularSeasonWeeks}` : '--'}
+            {analysis
+              ? analysis.isUsingLiveWeek
+                ? `WEEK ${analysis.completedWeeksCount} OF ${analysis.regularSeasonWeeks} (LIVE)`
+                : `WEEK ${analysis.lastScoredWeek} OF ${analysis.regularSeasonWeeks}`
+              : '--'}
           </strong>
           <span className="summary-note">
             {analysis
-              ? `${analysis.completedWeeksCount * (hasMedian ? 2 : 1)} games played per team`
+              ? analysis.isUsingLiveWeek
+                ? `Includes live in-progress Week ${analysis.inProgressWeek}`
+                : `Official record through Week ${analysis.lastScoredWeek} (Finalized)`
               : 'Awaiting league connection'}
           </span>
         </div>
@@ -500,6 +507,31 @@ export default function App() {
           </span>
         </div>
       </section>
+
+      {/* Live in-progress week banner & toggle */}
+      {analysis && analysis.inProgressWeek != null && (
+        <div className="live-week-banner">
+          <div className="live-week-info">
+            <span className="live-dot" />
+            <div className="live-week-text">
+              <strong>Week {analysis.inProgressWeek} Games In Progress</strong>
+              <span>
+                {analysis.isUsingLiveWeek
+                  ? `Standings currently include live projected scores from Week ${analysis.inProgressWeek} (games not final).`
+                  : `Standings show official finalized results through Week ${analysis.lastScoredWeek} (games not final).`}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className={`live-toggle-button ${analysis.isUsingLiveWeek ? 'active' : ''}`}
+            onClick={() => setIncludeLiveWeek(!includeLiveWeek)}
+          >
+            <Flame size={13} />
+            <span>{analysis.isUsingLiveWeek ? 'Switch to Official Finalized' : `Include Live Week ${analysis.inProgressWeek} Scores`}</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Board Section */}
       <section className="main-board-section">
@@ -938,6 +970,15 @@ export default function App() {
         {/* VIEW 2: WEEKLY BREAKDOWN */}
         {view === 'weekly' && analysis && (
           <div className="weekly-container">
+            {selectedWeek > analysis.lastScoredWeek && (
+              <div className="weekly-in-progress-notice">
+                <Flame size={14} />
+                <span>
+                  <strong>Week {selectedWeek} is currently in progress:</strong> Scores and results shown below are live projections until all games conclude.
+                </span>
+              </div>
+            )}
+
             <div className="weekly-subhead">
               <span className="weekly-summary-pill">
                 Week {selectedWeek} · {selectedWeekPerformances.length} Franchises · {hasMedian ? 'H2H + Top-Half Median Win Active' : 'Head-to-Head Scoring'}

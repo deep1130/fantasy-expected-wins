@@ -113,6 +113,11 @@ export interface ScheduleMatrixEntry {
 export interface ExpectedWinsAnalysis {
   teams: TeamSeasonSummary[]
   weeksAvailable: number[]
+  finalizedWeeks: number[]
+  inProgressWeek: number | null
+  isUsingLiveWeek: boolean
+  lastScoredWeek: number
+  currentWeek: number
   hasMedian: boolean
   totalTeams: number
   regularSeasonWeeks: number
@@ -144,8 +149,16 @@ export function avatarUrl(user?: SleeperUser): string | null {
   return `https://sleepercdn.com/avatars/thumbs/${user.avatar}`
 }
 
-export function computeExpectedWins(data: LeagueData): ExpectedWinsAnalysis {
-  const { league, rosters, users, weeks, hasMedianMatch, totalTeams, regularSeasonWeeks } = data
+export interface ExpectedWinsOptions {
+  includeInProgress?: boolean
+}
+
+export function computeExpectedWins(
+  data: LeagueData,
+  options?: ExpectedWinsOptions,
+): ExpectedWinsAnalysis {
+  const { league, rosters, users, weeks, hasMedianMatch, totalTeams, regularSeasonWeeks, lastScoredWeek, currentWeek } = data
+  const includeInProgress = options?.includeInProgress ?? false
 
   const userMap = new Map<string, SleeperUser>()
   for (const user of users) {
@@ -163,13 +176,35 @@ export function computeExpectedWins(data: LeagueData): ExpectedWinsAnalysis {
     .filter((w) => w >= 1 && w <= regularSeasonWeeks)
     .sort((a, b) => a - b)
 
-  // Filter only weeks where matchups actually have points or finished games
-  const completedWeeks = availableWeeks.filter((w) => {
+  // Filter only weeks where matchups actually have points
+  const allScoredWeeks = availableWeeks.filter((w) => {
     const feed = weeks[w]
     if (!feed || !feed.matchups || feed.matchups.length === 0) return false
-    // At least one team has > 0 points
     return feed.matchups.some((m) => (m.points ?? 0) > 0 || (m.custom_points ?? 0) > 0)
   })
+
+  // Finalized weeks are those officially scored and completed by Sleeper (<= lastScoredWeek)
+  const finalizedWeeks = allScoredWeeks.filter((w) => w <= lastScoredWeek)
+
+  // In-progress week is any scored week greater than lastScoredWeek (e.g. current live week)
+  const inProgressWeek = allScoredWeeks.find((w) => w > lastScoredWeek) ?? null
+
+  // Determine which weeks count towards season totals (standings, expected wins, luck)
+  // Default: strictly finalized weeks so standings match official Sleeper records!
+  let seasonWeeks: number[]
+  let isUsingLiveWeek = false
+
+  if (includeInProgress && inProgressWeek != null) {
+    seasonWeeks = allScoredWeeks
+    isUsingLiveWeek = true
+  } else if (finalizedWeeks.length > 0) {
+    seasonWeeks = finalizedWeeks
+    isUsingLiveWeek = false
+  } else {
+    // League is in week 1 and week 1 is not yet finalized
+    seasonWeeks = allScoredWeeks
+    isUsingLiveWeek = inProgressWeek != null
+  }
 
   // Map to store weekly performances for each team
   const weeklyMap = new Map<number, WeeklyTeamPerformance[]>()
@@ -184,7 +219,7 @@ export function computeExpectedWins(data: LeagueData): ExpectedWinsAnalysis {
   let overallWorstWeek: { teamName: string; points: number; week: number } | null = null
 
   // Process each completed week
-  for (const week of completedWeeks) {
+  for (const week of allScoredWeeks) {
     const feed = weeks[week]
     const matchups = feed.matchups || []
 
@@ -351,8 +386,9 @@ export function computeExpectedWins(data: LeagueData): ExpectedWinsAnalysis {
 
       weeklyMap.get(rosterId)?.push(perf)
 
-      // Check for notable bad beats and lucky escapes (in H2H)
-      if (oppRosterId != null && oppPoints != null) {
+      // Check for notable bad beats and lucky escapes (only for finalized weeks so in-progress scores don't register fake beats)
+      const isWeekFinalized = week <= lastScoredWeek || finalizedWeeks.length === 0
+      if (isWeekFinalized && oppRosterId != null && oppPoints != null) {
         const oppTeam = teamName(data, rosterMap.get(oppRosterId)!)
         // Bad Beat: finished in top 35% of league scoring that week but lost H2H
         if (h2hActualWins === 0 && h2hExpectedWins >= 0.65) {
@@ -400,6 +436,8 @@ export function computeExpectedWins(data: LeagueData): ExpectedWinsAnalysis {
     const user = userMap.get(roster.owner_id ?? '')
     const tName = teamName(data, roster)
     const perfs = weeklyMap.get(rosterId) || []
+    // Only count weeks in seasonWeeks (finalized weeks by default to match official Sleeper records)
+    const seasonPerfs = perfs.filter((p) => seasonWeeks.includes(p.week))
 
     let actualWins = 0
     let actualLosses = 0
@@ -422,7 +460,7 @@ export function computeExpectedWins(data: LeagueData): ExpectedWinsAnalysis {
     let lowestScore = { week: 0, points: Infinity }
     const weeklyPoints: number[] = []
 
-    for (const p of perfs) {
+    for (const p of seasonPerfs) {
       actualWins += p.totalActualWins
       actualLosses += p.totalActualLosses
       actualTies += p.h2hActualTies
@@ -464,10 +502,12 @@ export function computeExpectedWins(data: LeagueData): ExpectedWinsAnalysis {
     else if (luckDelta <= -1.75) luckTier = 'very-unlucky'
     else if (luckDelta <= -0.5) luckTier = 'unlucky'
 
-    const weeksCount = perfs.length || 1
+    const weeksCount = seasonPerfs.length || 1
     const avgPointsFor = pointsFor / weeksCount
     const avgPointsAgainst = pointsAgainst / weeksCount
-    const avgWeeklyRank = perfs.reduce((sum, p) => sum + p.rank, 0) / weeksCount
+    const avgWeeklyRank = seasonPerfs.length > 0
+      ? seasonPerfs.reduce((sum, p) => sum + p.rank, 0) / seasonPerfs.length
+      : 0
 
     // Standard deviation of points
     const mean = avgPointsFor
@@ -550,6 +590,7 @@ export function computeExpectedWins(data: LeagueData): ExpectedWinsAnalysis {
       let hypTies = 0
 
       for (const perfB of teamB.weeklyPerformances) {
+        if (!seasonWeeks.includes(perfB.week)) continue
         const perfA = teamA.weeklyPerformances.find((p) => p.week === perfB.week)
         if (!perfA) continue
 
@@ -595,11 +636,16 @@ export function computeExpectedWins(data: LeagueData): ExpectedWinsAnalysis {
 
   return {
     teams,
-    weeksAvailable: completedWeeks,
+    weeksAvailable: allScoredWeeks,
+    finalizedWeeks,
+    inProgressWeek,
+    isUsingLiveWeek,
+    lastScoredWeek,
+    currentWeek,
     hasMedian: hasMedianMatch,
     totalTeams,
     regularSeasonWeeks,
-    completedWeeksCount: completedWeeks.length,
+    completedWeeksCount: seasonWeeks.length,
     leagueName: league.name || 'Sleeper League',
     leagueId: league.league_id,
     season: league.season,
