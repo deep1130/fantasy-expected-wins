@@ -1733,7 +1733,11 @@ tbody tr:active td.sticky-col {
   .section-heading {
     flex-direction: column;
     align-items: flex-start;
-    gap: 14px;
+    gap: 12px;
+  }
+  .section-heading h2 {
+    font-size: 20px;
+    line-height: 1.2;
   }
   .board-tools {
     width: 100%;
@@ -1750,14 +1754,16 @@ tbody tr:active td.sticky-col {
   }
   .view-tabs {
     width: 100%;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    display: flex;
+    flex-wrap: wrap;
     gap: 4px;
   }
   .view-tabs button {
+    flex: 1 1 calc(33.333% - 4px);
     justify-content: center;
-    padding: 8px 4px;
+    padding: 7px 6px;
     font-size: 10px;
+    min-width: 0;
   }
   .model-cards-grid {
     grid-template-columns: 1fr;
