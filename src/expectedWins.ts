@@ -8,6 +8,7 @@ export interface WeeklyTeamPerformance {
   totalTeams: number
   oppRosterId: number | null
   oppPoints: number | null
+  oppDrawDifficulty: number | null // Leave-One-Out draw quality among available opponents (0.0 = easiest, 1.0 = hardest)
   // Head-to-Head
   h2hExpectedWins: number // e.g. 10/11 = 0.909
   h2hExpectedLosses: number
@@ -304,6 +305,7 @@ export function computeExpectedWins(
       // Find Head-to-Head opponent
       let oppRosterId: number | null = null
       let oppPoints: number | null = null
+      let oppDrawDifficulty: number | null = null
       let h2hActualWins = 0
       let h2hActualLosses = 0
       let h2hActualTies = 0
@@ -323,6 +325,19 @@ export function computeExpectedWins(
             h2hActualWins = 0.5
             h2hActualLosses = 0.5
           }
+
+          // Leave-One-Out draw difficulty: compare opponent points against all OTHER opponents this team could have drawn
+          let oppBeaten = 0
+          let oppTied = 0
+          let otherAvailableCount = 0
+          for (const cand of weekScores) {
+            if (cand.rosterId === rosterId || cand.rosterId === opp.rosterId) continue
+            otherAvailableCount++
+            if (opp.points > cand.points) oppBeaten++
+            else if (opp.points === cand.points) oppTied++
+          }
+          oppDrawDifficulty =
+            otherAvailableCount > 0 ? (oppBeaten + 0.5 * oppTied) / otherAvailableCount : 0.5
         } else {
           // Bye or unpaired
           if (pts > 0) h2hActualWins = 1.0
@@ -368,6 +383,7 @@ export function computeExpectedWins(
         totalTeams: n,
         oppRosterId,
         oppPoints,
+        oppDrawDifficulty,
         h2hExpectedWins,
         h2hExpectedLosses,
         h2hActualWins,
@@ -572,26 +588,23 @@ export function computeExpectedWins(
     t.paRank = idx + 1
   })
 
-  // Calculate Strength of Schedule (SOS) based on Game-Day / In-Week Opponent Quality ("Heat-Check SOS")
-  // For each week faced, we calculate the opponent's in-week expected win % (e.g. 1.000 if opponent was highest scorer that week).
+  // Calculate Strength of Schedule (SOS) based on Leave-One-Out Opponent Draw Quality
+  // In each week faced, we grade how difficult the opponent was out of all available opponents the team could have drawn (0.0 to 1.0).
+  // This completely eliminates the "you can't play yourself" bias, giving every team an identical 50.0% expected baseline.
   for (const t of teams) {
-    const oppInWeekExpWins: number[] = []
+    const oppDifficulties: number[] = []
 
     for (const p of t.weeklyPerformances) {
-      if (!seasonWeeks.includes(p.week) || p.oppRosterId == null) continue
-
-      const oppPerf = weeklyMap.get(p.oppRosterId)?.find((op) => op.week === p.week)
-      if (oppPerf) {
-        oppInWeekExpWins.push(oppPerf.h2hExpectedWins)
-      }
+      if (!seasonWeeks.includes(p.week) || p.oppRosterId == null || p.oppDrawDifficulty == null) continue
+      oppDifficulties.push(p.oppDrawDifficulty)
     }
 
-    const avgOppInWeekExpWinPct =
-      oppInWeekExpWins.length > 0
-        ? oppInWeekExpWins.reduce((sum, val) => sum + val, 0) / oppInWeekExpWins.length
+    const avgOppDifficulty =
+      oppDifficulties.length > 0
+        ? oppDifficulties.reduce((sum, val) => sum + val, 0) / oppDifficulties.length
         : 0.5
 
-    t.strengthOfSchedule = avgOppInWeekExpWinPct
+    t.strengthOfSchedule = avgOppDifficulty
   }
 
   // Assign SOS rank (Rank 1 = hardest schedule, highest opponent expected win %)
