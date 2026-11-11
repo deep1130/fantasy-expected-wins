@@ -43,6 +43,7 @@ type SortField =
   | 'pointsFor'
   | 'pointsAgainst'
   | 'avgRank'
+  | 'sos'
 
 const formatDec = (val: number, decimals = 2) =>
   val.toLocaleString('en-US', {
@@ -248,6 +249,9 @@ export default function App() {
           break
         case 'pointsAgainst':
           diff = b.pointsAgainst - a.pointsAgainst
+          break
+        case 'sos':
+          diff = b.strengthOfSchedule - a.strengthOfSchedule || b.pointsAgainst - a.pointsAgainst
           break
         case 'avgRank':
           diff = a.avgWeeklyRank - b.avgWeeklyRank
@@ -762,6 +766,13 @@ export default function App() {
                   </th>
                   <th
                     className="th-sortable"
+                    onClick={() => handleSort('sos')}
+                    title="Strength of Schedule: Opponent average expected win percentage (Rank #1 = Toughest Schedule)"
+                  >
+                    SOS RANK <ArrowUpDown size={11} />
+                  </th>
+                  <th
+                    className="th-sortable"
                     onClick={() => handleSort('avgRank')}
                     title="Average scoring rank in the league per week"
                   >
@@ -871,6 +882,27 @@ export default function App() {
                         </div>
                       </td>
 
+                      {/* Strength of Schedule */}
+                      <td>
+                        <div className="stat-primary">
+                          <strong>
+                            #{team.sosRank}{' '}
+                            <span style={{ fontSize: '11px', fontWeight: 500, color: 'var(--muted)' }}>
+                              ({formatPct(team.strengthOfSchedule)})
+                            </span>
+                          </strong>
+                          <span className="stat-sub">
+                            {team.sosRank <= Math.ceil(totalTeams / 3) ? (
+                              <span style={{ color: 'var(--unlucky-text)' }}>Toughest</span>
+                            ) : team.sosRank > totalTeams - Math.ceil(totalTeams / 3) ? (
+                              <span style={{ color: 'var(--lucky-text)' }}>Easiest</span>
+                            ) : (
+                              'Average'
+                            )}
+                          </span>
+                        </div>
+                      </td>
+
                       {/* Avg Weekly Rank */}
                       <td>
                         <div className="stat-primary">
@@ -884,7 +916,7 @@ export default function App() {
 
                 {!data && (
                   <tr>
-                    <td colSpan={9} className="empty-cell">
+                    <td colSpan={10} className="empty-cell">
                       {busy ? (
                         <>
                           <RefreshCw size={16} className="spin" /> Loading Sleeper league data…
@@ -899,7 +931,7 @@ export default function App() {
                 )}
                 {data && displayTeams.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="empty-cell">
+                    <td colSpan={10} className="empty-cell">
                       No franchises match “{search}”.
                     </td>
                   </tr>
@@ -927,6 +959,7 @@ export default function App() {
                   <option value="allPlay">All-Play Record</option>
                   <option value="pointsFor">Points For (PF)</option>
                   <option value="pointsAgainst">Points Against (PA)</option>
+                  <option value="sos">Strength of Schedule (SOS)</option>
                   <option value="avgRank">Average Rank</option>
                 </select>
               </div>
@@ -983,19 +1016,25 @@ export default function App() {
                     </span>
                   </div>
 
-                  {/* Record Splits (Head to Head & Median) */}
-                  {hasMedian && (
-                    <div className="m-card-records-strip">
-                      <div className="m-record-chip">
-                        <span className="m-chip-lbl">Head to Head:</span>
-                        <span className="m-chip-val">{team.h2hActualWins}–{team.h2hActualLosses}</span>
-                      </div>
-                      <div className="m-record-chip">
-                        <span className="m-chip-lbl">Median:</span>
-                        <span className="m-chip-val">{team.medianActualWins}–{team.medianActualLosses}</span>
-                      </div>
+                  {/* Record Splits (Head to Head, Median & SOS) */}
+                  <div className="m-card-records-strip">
+                    {hasMedian && (
+                      <>
+                        <div className="m-record-chip">
+                          <span className="m-chip-lbl">Head to Head:</span>
+                          <span className="m-chip-val">{team.h2hActualWins}–{team.h2hActualLosses}</span>
+                        </div>
+                        <div className="m-record-chip">
+                          <span className="m-chip-lbl">Median:</span>
+                          <span className="m-chip-val">{team.medianActualWins}–{team.medianActualLosses}</span>
+                        </div>
+                      </>
+                    )}
+                    <div className="m-record-chip">
+                      <span className="m-chip-lbl">SOS:</span>
+                      <span className="m-chip-val">#{team.sosRank} ({formatPct(team.strengthOfSchedule)})</span>
                     </div>
-                  )}
+                  </div>
 
                   <div className="m-card-metrics-grid">
                     <div className="m-metric-cell highlight">
@@ -1038,7 +1077,7 @@ export default function App() {
                       <strong className="m-metric-val">
                         {formatDec(team.pointsAgainst, 1)}
                       </strong>
-                      <span className="m-metric-sub">#{team.paRank} · {formatDec(team.avgPointsAgainst, 1)}/wk</span>
+                      <span className="m-metric-sub">#{team.paRank} · SOS #{team.sosRank}</span>
                     </div>
 
                     <div className="m-metric-cell">
@@ -1692,8 +1731,8 @@ export default function App() {
 
             <div className="model-card">
               <div className="model-card-header">
-                <span className="model-card-tag">LUCK METRIC</span>
-                <h4>3. Schedule Luck Delta &amp; Superlatives</h4>
+                <span className="model-card-tag">LUCK &amp; STRENGTH OF SCHEDULE</span>
+                <h4>3. Schedule Luck Delta &amp; SOS Rank</h4>
               </div>
               <p>
                 Schedule Luck is the difference between your real win total and your expected win total:
@@ -1701,9 +1740,11 @@ export default function App() {
                 <code>Luck = Actual Wins - Expected Wins</code>
               </p>
               <p>
-                • <strong>Positive Luck (+2.4 W):</strong> You benefited from favorable scheduling—opponents frequently had their off-weeks against you. Includes <strong>Lucky Escapes</strong>, where a bottom-tier weekly score escaped with a win.
+                • <strong>Strength of Schedule (SOS):</strong> Measures true opponent quality by calculating the average season expected win rate (All-Play %) of the opponents you drew. Rank #1 drew the league's toughest gauntlet, while Rank #{totalTeams} enjoyed the softest schedule.
                 <br />
-                • <strong>Negative Luck (-2.1 W):</strong> You are a schedule victim—high weekly point totals run into opponent season-high spikes. Includes <strong>Bad Beats</strong>, where a top-tier weekly score was robbed of a win.
+                • <strong>Positive Luck (+2.4 W):</strong> Favorable matchups—opponents consistently posted off-weeks against you. Includes <strong>Lucky Escapes</strong> (low-scoring wins).
+                <br />
+                • <strong>Negative Luck (-2.1 W):</strong> Schedule victim—high point totals run into opponent season explosions. Includes <strong>Bad Beats</strong> (high-scoring losses).
               </p>
             </div>
 

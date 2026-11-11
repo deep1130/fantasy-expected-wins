@@ -81,6 +81,10 @@ export interface TeamSeasonSummary {
   lowestScore: { week: number; points: number }
   scoreStdDev: number
 
+  // Strength of Schedule
+  strengthOfSchedule: number // Opponent average expected win % (e.g. 0.542 = 54.2%)
+  sosRank: number // 1 = hardest schedule, totalTeams = easiest schedule
+
   // Weekly logs
   weeklyPerformances: WeeklyTeamPerformance[]
 }
@@ -552,6 +556,8 @@ export function computeExpectedWins(
       highestScore: highestScore.points === -Infinity ? { week: 0, points: 0 } : highestScore,
       lowestScore: lowestScore.points === Infinity ? { week: 0, points: 0 } : lowestScore,
       scoreStdDev,
+      strengthOfSchedule: 0.5, // Assigned below
+      sosRank: 0, // Assigned below
       weeklyPerformances: perfs,
     }
   })
@@ -564,6 +570,34 @@ export function computeExpectedWins(
   const sortedByPa = [...teams].sort((a, b) => b.pointsAgainst - a.pointsAgainst)
   sortedByPa.forEach((t, idx) => {
     t.paRank = idx + 1
+  })
+
+  // Calculate Strength of Schedule (SOS) based on opponents' season-long Expected Win %
+  const teamByRosterId = new Map<number, TeamSeasonSummary>()
+  for (const t of teams) {
+    teamByRosterId.set(t.rosterId, t)
+  }
+
+  for (const t of teams) {
+    const opps = t.weeklyPerformances
+      .filter((p) => seasonWeeks.includes(p.week) && p.oppRosterId != null)
+      .map((p) => teamByRosterId.get(p.oppRosterId!))
+      .filter((opp): opp is TeamSeasonSummary => opp != null)
+
+    const avgOppExpWinPct =
+      opps.length > 0
+        ? opps.reduce((sum, opp) => sum + opp.expectedWinPct, 0) / opps.length
+        : 0.5
+
+    t.strengthOfSchedule = avgOppExpWinPct
+  }
+
+  // Assign SOS rank (Rank 1 = hardest schedule, highest opponent expected win %)
+  const sortedBySos = [...teams].sort(
+    (a, b) => b.strengthOfSchedule - a.strengthOfSchedule || b.pointsAgainst - a.pointsAgainst,
+  )
+  sortedBySos.forEach((t, idx) => {
+    t.sosRank = idx + 1
   })
 
   // Default sorting: Expected Wins descending (or Actual Wins)
