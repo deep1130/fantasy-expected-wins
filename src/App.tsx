@@ -1077,7 +1077,7 @@ export default function App() {
                       <strong className="m-metric-val">
                         {formatDec(team.pointsAgainst, 1)}
                       </strong>
-                      <span className="m-metric-sub">#{team.paRank} · SOS #{team.sosRank}</span>
+                      <span className="m-metric-sub">#{team.paRank} · {formatDec(team.avgPointsAgainst, 1)}/wk</span>
                     </div>
 
                     <div className="m-metric-cell">
