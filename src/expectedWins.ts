@@ -572,24 +572,26 @@ export function computeExpectedWins(
     t.paRank = idx + 1
   })
 
-  // Calculate Strength of Schedule (SOS) based on opponents' season-long Expected Win %
-  const teamByRosterId = new Map<number, TeamSeasonSummary>()
+  // Calculate Strength of Schedule (SOS) based on Game-Day / In-Week Opponent Quality ("Heat-Check SOS")
+  // For each week faced, we calculate the opponent's in-week expected win % (e.g. 1.000 if opponent was highest scorer that week).
   for (const t of teams) {
-    teamByRosterId.set(t.rosterId, t)
-  }
+    const oppInWeekExpWins: number[] = []
 
-  for (const t of teams) {
-    const opps = t.weeklyPerformances
-      .filter((p) => seasonWeeks.includes(p.week) && p.oppRosterId != null)
-      .map((p) => teamByRosterId.get(p.oppRosterId!))
-      .filter((opp): opp is TeamSeasonSummary => opp != null)
+    for (const p of t.weeklyPerformances) {
+      if (!seasonWeeks.includes(p.week) || p.oppRosterId == null) continue
 
-    const avgOppExpWinPct =
-      opps.length > 0
-        ? opps.reduce((sum, opp) => sum + opp.expectedWinPct, 0) / opps.length
+      const oppPerf = weeklyMap.get(p.oppRosterId)?.find((op) => op.week === p.week)
+      if (oppPerf) {
+        oppInWeekExpWins.push(oppPerf.h2hExpectedWins)
+      }
+    }
+
+    const avgOppInWeekExpWinPct =
+      oppInWeekExpWins.length > 0
+        ? oppInWeekExpWins.reduce((sum, val) => sum + val, 0) / oppInWeekExpWins.length
         : 0.5
 
-    t.strengthOfSchedule = avgOppExpWinPct
+    t.strengthOfSchedule = avgOppInWeekExpWinPct
   }
 
   // Assign SOS rank (Rank 1 = hardest schedule, highest opponent expected win %)

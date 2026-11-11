@@ -1740,7 +1740,7 @@ export default function App() {
                 <code>Luck = Actual Wins - Expected Wins</code>
               </p>
               <p>
-                • <strong>Strength of Schedule (SOS):</strong> Measures true opponent quality by calculating the average season expected win rate (All-Play %) of the opponents you drew. Rank #1 drew the league's toughest gauntlet, while Rank #{totalTeams} enjoyed the softest schedule.
+                • <strong>Strength of Schedule (SOS):</strong> Measures Game-Day Opponent Heat—the average in-week expected win rate of opponents in the exact weeks you faced them. If an opponent explodes for the league's #1 score against you, that game counts as 100% difficulty (1.00 xW), reflecting how brutal your opponents actually played on game day. Rank #1 faced the toughest gauntlet, while Rank #{totalTeams} enjoyed the softest schedule.
                 <br />
                 • <strong>Positive Luck (+2.4 W):</strong> Favorable matchups—opponents consistently posted off-weeks against you. Includes <strong>Lucky Escapes</strong> (low-scoring wins).
                 <br />
