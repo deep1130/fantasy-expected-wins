@@ -1652,8 +1652,8 @@ export default function App() {
         <summary>
           <span className="method-icon"><TrendingUp size={18} /></span>
           <div className="model-heading">
-            <span className="model-tag">HOW IT WORKS</span>
-            <strong>How Expected Wins &amp; Schedule Luck are calculated</strong>
+            <span className="model-tag">HOW IT WORKS &amp; METHODOLOGY</span>
+            <strong>How Expected Wins, Bench Blunders, Add/Drops &amp; Luck are calculated</strong>
           </div>
           <ChevronDown className="model-chevron" size={17} />
         </summary>
@@ -1693,17 +1693,17 @@ export default function App() {
             <div className="model-card">
               <div className="model-card-header">
                 <span className="model-card-tag">LUCK METRIC</span>
-                <h4>3. Schedule Luck Delta (ΔW)</h4>
+                <h4>3. Schedule Luck Delta &amp; Superlatives</h4>
               </div>
               <p>
-                Schedule Luck is simply the difference between your real win total and your expected win total:
+                Schedule Luck is the difference between your real win total and your expected win total:
                 <br />
                 <code>Luck = Actual Wins - Expected Wins</code>
               </p>
               <p>
-                • <strong>Positive Luck (+2.4 W):</strong> You benefited from favorable scheduling—your opponents frequently had poor scoring weeks against you.
+                • <strong>Positive Luck (+2.4 W):</strong> You benefited from favorable scheduling—opponents frequently had their off-weeks against you. Includes <strong>Lucky Escapes</strong>, where a bottom-tier weekly score escaped with a win.
                 <br />
-                • <strong>Negative Luck (-2.1 W):</strong> You are a schedule victim—you consistently posted strong point totals but ran into opponents having their season-high explosions.
+                • <strong>Negative Luck (-2.1 W):</strong> You are a schedule victim—high weekly point totals run into opponent season-high spikes. Includes <strong>Bad Beats</strong>, where a top-tier weekly score was robbed of a win.
               </p>
             </div>
 
@@ -1717,6 +1717,38 @@ export default function App() {
               </p>
               <p>
                 Mathematically, <strong>Expected Wins × (N - 1)</strong> is identically equal to your total All-Play wins. All-Play Win Percentage is the purest measure of roster scoring dominance over the course of a fantasy football season.
+              </p>
+            </div>
+
+            <div className="model-card">
+              <div className="model-card-header">
+                <span className="model-card-tag">BENCH MISTAKES</span>
+                <h4>5. Weekly Bench Blunders &amp; Start/Sit Realism</h4>
+              </div>
+              <p>
+                Evaluates games your team lost (H2H or Median) where a player on your active bench scored enough points to flip the outcome to a victory.
+              </p>
+              <p>
+                <strong>Pre-Game Realism Model:</strong> Blunders require a startable pre-game projection (<code>&ge; 6.5</code> pts) so deep-bench dart throws are never flagged. Replacements only target your lowest-projected starter in an eligible slot or realistic coin-flips—ensuring your superstar studs are never unrealistically benched.
+              </p>
+              <p>
+                Every blunder details exact <strong>win transfers</strong>: the opponent who loses their H2H win, and the 6th-place team bumped from their Median win.
+              </p>
+            </div>
+
+            <div className="model-card">
+              <div className="model-card-header">
+                <span className="model-card-tag">TRANSACTION REGRETS</span>
+                <h4>6. Waiver Add/Drop Regrets &amp; Claimer Ripple</h4>
+              </div>
+              <p>
+                Tracks players dropped to waivers or free agency (excluding trades) who went off within a 4-week window and would have flipped a matchup you lost.
+              </p>
+              <p>
+                <strong>Claimer Ripple Effect:</strong> If another manager claimed and started your dropped player, we simulate that week without him by inserting their highest-projected bench backup.
+              </p>
+              <p>
+                This reveals the ripple cost of the cut: how many points the claiming team gained, and whether your drop handed them a free H2H or Median win they otherwise would have lost.
               </p>
             </div>
           </div>
