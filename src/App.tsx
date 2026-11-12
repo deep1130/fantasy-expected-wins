@@ -254,7 +254,7 @@ export default function App() {
       if (!leagues.length) {
         setUserLeagues([])
         setResolvedUserLabel('')
-        setError(`No Sleeper leagues found for "@${cleanedUsername}".`)
+        setError(`No active Sleeper leagues found for "@${cleanedUsername}".`)
         return
       }
       setUserLeagues(leagues)

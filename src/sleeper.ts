@@ -125,6 +125,7 @@ export async function fetchUserLeagues(
   )
 
   return (leagues ?? [])
+    .filter((league) => league.status === 'in_season' || league.status === 'complete')
     .map((league) => ({
       league_id: league.league_id,
       name: league.name,
@@ -133,7 +134,12 @@ export async function fetchUserLeagues(
       status: league.status,
       isDynasty: Number(league.settings?.type) === 2,
     }))
-    .sort((a, b) => Number(b.isDynasty) - Number(a.isDynasty) || a.name.localeCompare(b.name))
+    .sort(
+      (a, b) =>
+        Number(b.status === 'in_season') - Number(a.status === 'in_season') ||
+        Number(b.isDynasty) - Number(a.isDynasty) ||
+        a.name.localeCompare(b.name),
+    )
 }
 
 export async function loadLeagueData(leagueId: string, signal?: AbortSignal): Promise<LeagueData> {
