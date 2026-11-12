@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUpDown,
   Award,
@@ -23,7 +23,7 @@ import {
   type ExpectedWinsAnalysis,
   type TeamSeasonSummary,
 } from './expectedWins'
-import { loadLeagueData, type LeagueData } from './sleeper'
+import { fetchUserLeagues, loadLeagueData, type LeagueData, type UserLeagueSummary } from './sleeper'
 import { fetchSleeperPlayers, type SleeperPlayer } from './sleeperPlayers'
 import {
   fetchLeagueTransactions,
@@ -45,6 +45,15 @@ type SortField =
   | 'avgRank'
   | 'sos'
 
+interface RecentLeague {
+  id: string
+  name: string
+  season: string
+}
+
+const RECENT_LEAGUES_KEY = 'expected-wins-recent-leagues-v1'
+const MAX_RECENT_LEAGUES = 5
+
 const formatDec = (val: number, decimals = 2) =>
   val.toLocaleString('en-US', {
     minimumFractionDigits: decimals,
@@ -52,6 +61,47 @@ const formatDec = (val: number, decimals = 2) =>
   })
 
 const formatPct = (val: number) => `${(val * 100).toFixed(1)}%`
+
+function isAbortError(reason: unknown): boolean {
+  return (
+    (reason instanceof DOMException && reason.name === 'AbortError') ||
+    (reason instanceof Error && reason.name === 'AbortError')
+  )
+}
+
+function readRecentLeagues(): RecentLeague[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(RECENT_LEAGUES_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter(
+        (item): item is RecentLeague =>
+          Boolean(item) &&
+          typeof item === 'object' &&
+          typeof (item as RecentLeague).id === 'string' &&
+          typeof (item as RecentLeague).name === 'string' &&
+          typeof (item as RecentLeague).season === 'string',
+      )
+      .slice(0, MAX_RECENT_LEAGUES)
+  } catch {
+    return []
+  }
+}
+
+function writeRecentLeagues(entries: RecentLeague[]) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(
+      RECENT_LEAGUES_KEY,
+      JSON.stringify(entries.slice(0, MAX_RECENT_LEAGUES)),
+    )
+  } catch {
+    // Ignore storage quota / privacy mode errors
+  }
+}
 
 function getInitialLeagueId(): string {
   if (typeof window !== 'undefined') {
@@ -87,6 +137,11 @@ export default function App() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [view, setView] = useState<View>(initialView)
+  const [recentLeagues, setRecentLeagues] = useState<RecentLeague[]>(() => readRecentLeagues())
+  const [userLeagues, setUserLeagues] = useState<UserLeagueSummary[]>([])
+  const [resolvedUserLabel, setResolvedUserLabel] = useState('')
+  const abortRef = useRef<AbortController | null>(null)
+  const loadedExtrasLeagueRef = useRef<string>('')
 
   const changeView = (nextView: View) => {
     setView(nextView)
@@ -110,36 +165,122 @@ export default function App() {
   const [weeklyStats, setWeeklyStats] = useState<Record<string, any>[]>([])
   const [projections, setProjections] = useState<Record<string, any>[]>([])
 
-  async function refresh(targetId?: string) {
-    const activeId = (targetId ?? leagueId).trim()
-    if (!activeId) {
-      setError('Please enter a Sleeper League ID.')
+  const recordRecentLeague = useCallback((next: LeagueData) => {
+    const entry: RecentLeague = {
+      id: next.league.league_id,
+      name: next.league.name || `League ${next.league.league_id}`,
+      season: next.league.season,
+    }
+    setRecentLeagues((prev) => {
+      const merged = [entry, ...prev.filter((item) => item.id !== entry.id)].slice(
+        0,
+        MAX_RECENT_LEAGUES,
+      )
+      writeRecentLeagues(merged)
+      return merged
+    })
+  }, [])
+
+  const loadLeagueById = useCallback(
+    async (rawId: string, clearUserPicker = false) => {
+      const activeId = rawId.trim()
+      if (!activeId) return
+
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      if (clearUserPicker) {
+        setUserLeagues([])
+        setResolvedUserLabel('')
+      }
+      setLeagueId(activeId)
+      setBusy(true)
+      setError('')
+
+      try {
+        const nextData = await loadLeagueData(activeId, controller.signal)
+        if (controller.signal.aborted) return
+        setData(nextData)
+        setMatrixTeamId(null)
+        setLastUpdated(Date.now())
+        recordRecentLeague(nextData)
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href)
+          url.searchParams.set('league', activeId)
+          window.history.replaceState({}, '', url.toString())
+        }
+      } catch (err) {
+        if (controller.signal.aborted || isAbortError(err)) return
+        setError(err instanceof Error ? err.message : 'Could not load league data from Sleeper.')
+      } finally {
+        if (abortRef.current === controller) {
+          setBusy(false)
+        }
+      }
+    },
+    [recordRecentLeague],
+  )
+
+  async function refresh(targetInput?: string) {
+    const queryInput = (targetInput ?? leagueId).trim()
+    if (!queryInput) {
+      setError('Please enter a Sleeper League ID or @username.')
       setBusy(false)
       return
     }
 
+    if (/^\d+$/.test(queryInput)) {
+      await loadLeagueById(queryInput, true)
+      return
+    }
+
+    const cleanedUsername = queryInput.replace(/^@+/, '').trim()
+    if (!cleanedUsername) {
+      setError('Please enter a Sleeper League ID or @username.')
+      setBusy(false)
+      return
+    }
+
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setBusy(true)
     setError('')
+
     try {
-      const nextData = await loadLeagueData(activeId)
-      setData(nextData)
-      setLastUpdated(Date.now())
-      if (typeof window !== 'undefined') {
-        const url = new URL(window.location.href)
-        url.searchParams.set('league', activeId)
-        window.history.replaceState({}, '', url.toString())
+      const leagues = await fetchUserLeagues(cleanedUsername, controller.signal)
+      if (controller.signal.aborted) return
+      if (!leagues.length) {
+        setUserLeagues([])
+        setResolvedUserLabel('')
+        setError(`No Sleeper leagues found for "@${cleanedUsername}".`)
+        return
       }
+      setUserLeagues(leagues)
+      setResolvedUserLabel(cleanedUsername)
+      await loadLeagueById(leagues[0].league_id, false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load league data from Sleeper.')
+      if (controller.signal.aborted || isAbortError(err)) return
+      setUserLeagues([])
+      setResolvedUserLabel('')
+      setError(
+        err instanceof Error ? err.message : 'Could not find Sleeper user or leagues.',
+      )
     } finally {
-      setBusy(false)
+      if (abortRef.current === controller) {
+        setBusy(false)
+      }
     }
   }
 
   useEffect(() => {
     const id = getInitialLeagueId()
     if (id) {
-      refresh(id)
+      void refresh(id)
+    }
+    return () => {
+      abortRef.current?.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -175,9 +316,15 @@ export default function App() {
         .finally(() => setIsLoadingPlayers(false))
     }
 
-    if (data && transactions.length === 0) {
-      fetchLeagueTransactions(data.league.league_id, data.regularSeasonWeeks)
-        .then((txs) => setTransactions(txs))
+    if (data && loadedExtrasLeagueRef.current !== data.league.league_id) {
+      const targetLeagueId = data.league.league_id
+      loadedExtrasLeagueRef.current = targetLeagueId
+      setTransactions([])
+
+      fetchLeagueTransactions(targetLeagueId, data.regularSeasonWeeks)
+        .then((txs) => {
+          if (loadedExtrasLeagueRef.current === targetLeagueId) setTransactions(txs)
+        })
         .catch((err) => console.warn('Could not load transactions:', err))
 
       fetchAllWeeklyStats(data.league.season, data.regularSeasonWeeks)
@@ -188,11 +335,13 @@ export default function App() {
         .then((projs) => setProjections(projs))
         .catch((err) => console.warn('Could not load weekly projections:', err))
     }
-  }, [data, view, playersMap, isLoadingPlayers, transactions])
+  }, [data, view, playersMap, isLoadingPlayers])
 
   async function handleShare() {
-    const activeId = leagueId.trim()
-    if (!activeId || typeof window === 'undefined') return
+    if (typeof window === 'undefined') return
+    const trimmed = leagueId.trim()
+    const activeId = data?.league.league_id ?? (/^\d+$/.test(trimmed) ? trimmed : '')
+    if (!activeId) return
     const url = new URL(window.location.href)
     url.searchParams.set('league', activeId)
     const shareUrl = url.toString()
@@ -451,22 +600,26 @@ export default function App() {
         </div>
 
         <div className="league-control">
-          <label htmlFor="league-id">SLEEPER LEAGUE ID</label>
+          <label htmlFor="league-id">SLEEPER LEAGUE ID OR USERNAME</label>
           <div className="league-input-row">
             <input
               id="league-id"
               type="text"
               value={leagueId}
               onChange={(e) => setLeagueId(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && refresh()}
-              placeholder="e.g. 1124455667788"
-              aria-label="Sleeper League ID"
-              disabled={busy}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void refresh()
+              }}
+              placeholder="League ID or @username"
+              aria-label="Sleeper League ID or username"
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
             />
             <button
               type="button"
               className={`share-button ${copied ? 'copied' : ''}`}
-              onClick={handleShare}
+              onClick={() => void handleShare()}
               title="Copy shareable link"
               disabled={busy || !leagueId.trim()}
             >
@@ -476,7 +629,7 @@ export default function App() {
             <button
               type="button"
               className="refresh-button"
-              onClick={() => refresh()}
+              onClick={() => void refresh()}
               disabled={busy || !leagueId.trim()}
             >
               <RefreshCw size={13} className={busy ? 'spin' : ''} />
@@ -488,9 +641,44 @@ export default function App() {
             <span>
               {lastUpdated
                 ? `UPDATED ${new Date(lastUpdated).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
-                : 'ENTER LEAGUE ID AND CLICK REFRESH'}
+                : 'ENTER A SLEEPER LEAGUE ID OR @USERNAME'}
             </span>
           </div>
+          {userLeagues.length > 1 && (
+            <div className="quick-leagues-row" aria-label={`Leagues for @${resolvedUserLabel}`}>
+              <span className="quick-leagues-label">@{resolvedUserLabel}</span>
+              {userLeagues.map((entry) => (
+                <button
+                  key={entry.league_id}
+                  type="button"
+                  className={`quick-league-chip ${data?.league.league_id === entry.league_id ? 'active' : ''}`}
+                  onClick={() => void loadLeagueById(entry.league_id, false)}
+                  disabled={busy}
+                  title={`${entry.name} (${entry.season} · ${entry.total_rosters} teams)`}
+                >
+                  <span>{entry.name}</span>
+                  {entry.isDynasty && <span className="dynasty-badge">DYN</span>}
+                </button>
+              ))}
+            </div>
+          )}
+          {userLeagues.length <= 1 && recentLeagues.length > 0 && (
+            <div className="quick-leagues-row" aria-label="Recent leagues">
+              <span className="quick-leagues-label">RECENT</span>
+              {recentLeagues.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  className={`quick-league-chip ${data?.league.league_id === entry.id ? 'active' : ''}`}
+                  onClick={() => void loadLeagueById(entry.id, true)}
+                  disabled={busy}
+                  title={`${entry.name} (${entry.season})`}
+                >
+                  <span>{entry.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -510,7 +698,7 @@ export default function App() {
           <span className="summary-note">
             {analysis
               ? `${analysis.totalTeams} teams · ${hasMedian ? '2 Wins/Wk (H2H + Median)' : '1 Win/Wk (H2H)'}`
-              : 'Enter Sleeper League ID above'}
+              : 'Enter a league ID or @username above'}
           </span>
         </div>
 
@@ -923,7 +1111,7 @@ export default function App() {
                         </>
                       ) : (
                         <div className="empty-prompt">
-                          <p>Enter any public Sleeper League ID above to calculate live expected wins and schedule luck.</p>
+                          <p>Enter any public Sleeper League ID or @username above to calculate live expected wins and schedule luck.</p>
                         </div>
                       )}
                     </td>
@@ -1097,7 +1285,7 @@ export default function App() {
                 {busy ? (
                   <p><RefreshCw size={16} className="spin" /> Loading Sleeper league data…</p>
                 ) : (
-                  <p>Enter any public Sleeper League ID above to calculate live expected wins and schedule luck.</p>
+                  <p>Enter any public Sleeper League ID or @username above to calculate live expected wins and schedule luck.</p>
                 )}
               </div>
             )}

@@ -66,6 +66,15 @@ export interface WeekMatchupFeed {
   matchups: SleeperMatchup[]
 }
 
+export interface UserLeagueSummary {
+  league_id: string
+  name: string
+  season: string
+  total_rosters: number
+  status: string
+  isDynasty: boolean
+}
+
 export interface LeagueData {
   league: SleeperLeague
   rosters: SleeperRoster[]
@@ -82,26 +91,60 @@ export interface LeagueData {
 
 const SLEEPER_API = 'https://api.sleeper.app/v1'
 
-async function getJson<T>(url: string): Promise<T> {
-  const response = await fetch(url)
+async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(url, { signal })
   if (!response.ok) {
     if (response.status === 404) {
-      throw new Error(`Sleeper league not found. Please verify the League ID.`)
+      throw new Error(`Sleeper league or user not found. Please verify your input.`)
     }
     throw new Error(`Request failed (${response.status}): ${url}`)
   }
   return response.json() as Promise<T>
 }
 
-export async function loadLeagueData(leagueId: string): Promise<LeagueData> {
+export async function fetchUserLeagues(
+  usernameOrId: string,
+  signal?: AbortSignal,
+): Promise<UserLeagueSummary[]> {
+  const cleaned = usernameOrId.trim().replace(/^@+/, '')
+  if (!cleaned) return []
+
+  const user = await getJson<{ user_id?: string; display_name?: string } | null>(
+    `${SLEEPER_API}/user/${encodeURIComponent(cleaned)}`,
+    signal,
+  )
+  if (!user?.user_id) {
+    throw new Error(`Sleeper user "@${cleaned}" not found.`)
+  }
+
+  const nflState = await getJson<NflState>(`${SLEEPER_API}/state/nfl`, signal)
+  const season = nflState.league_season || nflState.season || String(new Date().getFullYear())
+  const leagues = await getJson<SleeperLeague[]>(
+    `${SLEEPER_API}/user/${user.user_id}/leagues/nfl/${season}`,
+    signal,
+  )
+
+  return (leagues ?? [])
+    .map((league) => ({
+      league_id: league.league_id,
+      name: league.name,
+      season: league.season || season,
+      total_rosters: league.total_rosters,
+      status: league.status,
+      isDynasty: Number(league.settings?.type) === 2,
+    }))
+    .sort((a, b) => Number(b.isDynasty) - Number(a.isDynasty) || a.name.localeCompare(b.name))
+}
+
+export async function loadLeagueData(leagueId: string, signal?: AbortSignal): Promise<LeagueData> {
   const cleanId = leagueId.trim()
-  if (!cleanId) throw new Error('Please enter a Sleeper League ID.')
+  if (!cleanId) throw new Error('Please enter a Sleeper League ID or @username.')
 
   const [league, rosters, users, nflState] = await Promise.all([
-    getJson<SleeperLeague>(`${SLEEPER_API}/league/${cleanId}`),
-    getJson<SleeperRoster[]>(`${SLEEPER_API}/league/${cleanId}/rosters`),
-    getJson<SleeperUser[]>(`${SLEEPER_API}/league/${cleanId}/users`),
-    getJson<NflState>(`${SLEEPER_API}/state/nfl`),
+    getJson<SleeperLeague>(`${SLEEPER_API}/league/${cleanId}`, signal),
+    getJson<SleeperRoster[]>(`${SLEEPER_API}/league/${cleanId}/rosters`, signal),
+    getJson<SleeperUser[]>(`${SLEEPER_API}/league/${cleanId}/users`, signal),
+    getJson<NflState>(`${SLEEPER_API}/state/nfl`, signal),
   ])
 
   if (!league || !league.league_id) {
@@ -127,7 +170,11 @@ export async function loadLeagueData(leagueId: string): Promise<LeagueData> {
     weekNumbers.map(async (week) => {
       const matchups = await getJson<SleeperMatchup[]>(
         `${SLEEPER_API}/league/${cleanId}/matchups/${week}`,
-      ).catch(() => [])
+        signal,
+      ).catch((err) => {
+        if (signal?.aborted) throw err
+        return [] as SleeperMatchup[]
+      })
       return { week, matchups }
     }),
   )
